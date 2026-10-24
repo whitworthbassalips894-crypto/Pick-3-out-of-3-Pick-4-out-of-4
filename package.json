@@ -1,0 +1,20 @@
+{
+  "name": "mark6-pick3-pick4-pwa",
+  "version": "1.0.0",
+  "description": "六合彩「7码复式 · 三中三 / 四中四」每日选号网页工具（PWA 单页版）",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build:db": "node scripts/build_history_db.mjs",
+    "sync": "node scripts/sync_latest.mjs",
+    "start": "npx --yes serve -l 3000 ."
+  },
+  "keywords": [
+    "mark6",
+    "pick-3-out-of-3",
+    "pick-4-out-of-4",
+    "pwa",
+    "lottery-analyzer"
+  ],
+  "license": "MIT"
+}
