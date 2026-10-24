@@ -157,6 +157,7 @@ code { color: #38bdf8; font-size: 0.85em; }
 }
 .kpi-chip .k-label { font-size: 0.72rem; color: var(--sub); }
 .kpi-chip .k-value { font-size: 1.02rem; font-weight: 800; }
+.win-detail { margin-top: 10px; font-size: 0.83rem; color: #fde68a; line-height: 1.7; }
 .k-value.positive { color: var(--green); }
 .k-value.negative { color: var(--red); }
 .k-value.gold { color: #fbbf24; }

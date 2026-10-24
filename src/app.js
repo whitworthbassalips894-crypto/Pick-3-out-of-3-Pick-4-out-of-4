@@ -1,7 +1,7 @@
 /**
  * 六合彩「7码复式 · 三中三 / 四中四」每日选号工具（简洁一页版）前端主控制器
  *
- * 一页流结构：① 今日推荐 → ② 自选7码 → ③ 开奖核对 → ④ 近期历史 → ⑤ 更多（折叠）
+ * 一页流结构：① 今日推荐 → ② 自选7码 → ③ 开奖核对 → ④ 历史回放 → ⑤ 更多（折叠）
  * 核心算法（strategy / combinatorics / parser）与底库 data/draws.js 保持不变，仅重组界面与交互。
  */
 
@@ -290,6 +290,11 @@ function renderToday() {
     const p3 = compound.pick3;
     const p4 = compound.pick4;
     const winCls = k >= 3 ? ' win' : '';
+    // 回放命中明细：列出实际中奖的具体组合（无中奖则不占屏）
+    const winDetail = [
+      p3.winningCombos.length ? `<div>🎉 三中三命中组合（${p3.winningCombos.length} 注）：${p3.winningCombos.map((c) => numsText(c.nums)).join('；')}</div>` : '',
+      p4.winningCombos.length ? `<div>🎉 四中四命中组合（${p4.winningCombos.length} 注）：${p4.winningCombos.map((c) => numsText(c.nums)).join('；')}</div>` : ''
+    ].filter(Boolean).join('');
     box.innerHTML = `
       <div class="result-strip${winCls}">
         <div class="result-label">本期开奖（正码 + 特码）· 7码命中 ${k} 个正码${compound.specialMatched ? '（另含特码，不计入）' : ''}</div>
@@ -299,6 +304,7 @@ function renderToday() {
           <div class="kpi-chip"><div class="k-label">四中四（复式35注）中 ${p4.winCount} 注</div><div class="k-value ${p4.netProfit >= 0 ? 'positive' : 'negative'}">${money(p4.netProfit)}</div></div>
           <div class="kpi-chip"><div class="k-label">精选5注命中</div><div class="k-value gold">三中三 ${eval3.winCount} · 四中四 ${eval4.winCount}</div></div>
         </div>
+        ${winDetail ? `<div class="win-detail">${winDetail}</div>` : ''}
       </div>`;
   }
 
@@ -515,7 +521,7 @@ function filteredHistory() {
 function renderHistory() {
   const list = filteredHistory();
   const visible = list.slice(0, state.historyVisible);
-  $('histCount').textContent = `共 ${list.length} 期，显示 ${visible.length} 期 · 点击任意一期可跳到上方看它的复盘`;
+  $('histCount').textContent = `共 ${list.length} 期，显示 ${visible.length} 期 · 点击任意一期 = 回放该期（用当期之前的数据生成推荐，再和实际开奖核对）`;
   $('histList').innerHTML = visible.map((d) => `
     <button type="button" class="history-item" data-jump="${d.id}">
       <span class="hist-period">${d.year}年第${d.period}期<small>${d.date}</small></span>

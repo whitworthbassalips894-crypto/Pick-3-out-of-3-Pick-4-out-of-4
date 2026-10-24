@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0f172a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具（简洁一页版）：今日推荐、自选7码、开奖核对、近期历史一页搞定" />
+  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具（简洁一页版）：今日推荐、自选7码、开奖核对、历史回放一页搞定" />
   <title>六合彩 7码复式 · 三中三 / 四中四</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
@@ -27,7 +27,7 @@
         <a href="#today">🎯 推荐</a>
         <a href="#picker">🎛️ 自选</a>
         <a href="#check">✍️ 核对</a>
-        <a href="#history">📜 历史</a>
+        <a href="#history">📜 回放</a>
         <a href="#more">⚙️ 更多</a>
       </nav>
     </div>
@@ -173,10 +173,10 @@
       </div>
     </section>
 
-    <!-- ④ 近期历史 -->
+    <!-- ④ 历史回放 -->
     <section id="history" class="page-section">
       <div class="section-head">
-        <h2>📜 近期历史</h2>
+        <h2>📜 历史回放</h2>
         <div class="section-tools">
           <select id="histYear" class="select-ctrl select-sm" aria-label="年份">
             <option value="all">全部年份</option>
@@ -193,7 +193,7 @@
         </div>
 
         <details class="fold fold-inner" id="foldBacktest">
-          <summary>历史回测（按需计算，点开后选参数再运行）</summary>
+          <summary>批量回测统计（多期汇总，按需计算；单期回放直接点上方列表）</summary>
           <div class="fold-body">
             <div class="bt-controls">
               <select id="btStrategy" class="select-ctrl select-sm">
