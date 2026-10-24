@@ -2,6 +2,18 @@
  * 六合彩基础常量：49码波色、生肖映射、默认赔率与本金配置
  */
 
+/**
+ * 构建版本号（Build ID）
+ *
+ * 作用：Service Worker 缓存名、index.html 静态资源版本参数、页面底部版本号三处必须一致，
+ * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
+ * 由 tests/build-version.test.mjs 自动校验三处一致性。
+ */
+export const APP_BUILD = '2026.10.24-r3';
+
+/** 页面上显示的版本标签 */
+export const APP_VERSION_LABEL = `v${APP_BUILD}`;
+
 export const ALL_NUMBERS = Array.from({ length: 49 }, (_, i) => i + 1);
 
 export const WAVE_COLORS = {
