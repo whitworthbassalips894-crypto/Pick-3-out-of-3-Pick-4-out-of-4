@@ -1,13 +1,13 @@
 {
   "name": "六合彩「7码复式 · 三中三 / 四中四」每日选号工具",
   "short_name": "7码三中三",
-  "description": "六合彩7码复式三中三/四中四每日选号工具（简洁一页版）：今日推荐、自选7码、开奖核对、近期历史",
+  "description": "六合彩7码复式三中三/四中四每日选号工具：今日推荐、自选7码、开奖核对、逐期历史回放（明确标注命中与注数）",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0b1120",
-  "theme_color": "#0f172a",
+  "background_color": "#f6f8fb",
+  "theme_color": "#f6f8fb",
   "lang": "zh-CN",
   "icons": [
     {

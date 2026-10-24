@@ -501,6 +501,182 @@ export function generatePeriodPlan(allDraws = [], targetMeta = {}, options = {})
 }
 
 /**
+ * 为一批目标期号生成「逐期回放」记录
+ *
+ * 无未来函数保证：第 T 期的推荐只使用严格早于 T 期的历史正码（getPriorDraws 过滤 year/periodNum），
+ * 当期开奖结果与之后的数据一律不会参与当期推荐的计算。
+ *
+ * @param {object[]} allDraws 完整历史底库（任意顺序均可，内部按 year/periodNum 判定先后）
+ * @param {object[]} targets 需要回放的期次（必须来自 allDraws）
+ * @param {{
+ *   strategyId?: string,
+ *   customNumbers?: number[] | null,
+ *   stake?: number,
+ *   odds3?: number,
+ *   odds4?: number
+ * }} [options]
+ * @returns {object[]}
+ */
+export function buildReplayRecords(allDraws = [], targets = [], options = {}) {
+  const {
+    strategyId = 'composite',
+    customNumbers = null,
+    stake = 10,
+    odds3 = 650,
+    odds4 = 7500
+  } = options;
+
+  const fixedCustom =
+    Array.isArray(customNumbers) && customNumbers.length >= 4
+      ? normalizeNumbers(customNumbers, { sort: true, maxCount: 7 })
+      : null;
+
+  const records = [];
+
+  for (const draw of targets) {
+    if (!draw) continue;
+
+    // 只取严格早于当期的前 64 期（特征统计最多用 60 期）
+    const priorDraws = getPriorDraws(allDraws, {
+      year: draw.year,
+      periodNum: draw.periodNum
+    }).slice(0, 64);
+
+    let plan = null;
+    let sevenNumbers = fixedCustom;
+    if (!sevenNumbers) {
+      plan = generatePeriodPlan(
+        priorDraws,
+        { year: draw.year, periodNum: draw.periodNum, date: draw.date },
+        { strategyId }
+      );
+      sevenNumbers = plan.primary7;
+    }
+
+    const compoundEval = evaluate7CodeCompound(sevenNumbers, draw, { stake, odds3, odds4 });
+    const featured3Tickets = plan
+      ? plan.featuredPick3
+      : selectFeaturedCombinations(sevenNumbers, {}, null).top5Pick3;
+    const featured4Tickets = plan
+      ? plan.featuredPick4
+      : selectFeaturedCombinations(sevenNumbers, {}, null).top5Pick4;
+
+    const direct3Eval = evaluateDirectTickets(featured3Tickets, draw, {
+      stake,
+      odds3,
+      odds4,
+      targetSize: 3
+    });
+    const direct4Eval = evaluateDirectTickets(featured4Tickets, draw, {
+      stake,
+      odds3,
+      odds4,
+      targetSize: 4
+    });
+
+    records.push({
+      draw,
+      strategyId: fixedCustom ? 'custom' : strategyId,
+      sevenNumbers,
+      priorSampleCount: priorDraws.length,
+      matchedNormals: compoundEval.matchedNormals,
+      matchedNormalCount: compoundEval.matchedNormalCount,
+      specialMatched: compoundEval.specialMatched,
+      compoundEval,
+      direct3Eval,
+      direct4Eval,
+      featured3Tickets,
+      featured4Tickets,
+      strategies: plan ? plan.strategies : null
+    });
+  }
+
+  return records;
+}
+
+/**
+ * 汇总逐期回放记录：命中期数 / 命中率 / 中奖注数 / 成本 / 返奖 / 净盈亏 / ROI
+ * 三中三与四中四分开统计，避免混在一起看不懂。
+ *
+ * @param {object[]} records buildReplayRecords 的输出
+ * @param {{stake?: number, odds3?: number, odds4?: number, betMode?: 'compound7'|'featured5'}} [options]
+ */
+export function summarizeReplay(records = [], options = {}) {
+  const {
+    stake = 10,
+    odds3 = 650,
+    odds4 = 7500,
+    betMode = 'compound7',
+    strategyId = 'composite'
+  } = options;
+
+  let hitPeriods3 = 0;
+  let totalWinBets3 = 0;
+  let totalCost3 = 0;
+  let totalPayout3 = 0;
+  let hitPeriods4 = 0;
+  let totalWinBets4 = 0;
+  let totalCost4 = 0;
+  let totalPayout4 = 0;
+  let hitNormalGe2Periods = 0;
+  let maxSingleWinBets3 = 0;
+
+  for (const r of records) {
+    const active3 = betMode === 'featured5' ? r.direct3Eval : r.compoundEval.pick3;
+    const active4 = betMode === 'featured5' ? r.direct4Eval : r.compoundEval.pick4;
+
+    if (r.matchedNormalCount >= 2) hitNormalGe2Periods++;
+    if (active3.winCount > 0) {
+      hitPeriods3++;
+      totalWinBets3 += active3.winCount;
+      if (active3.winCount > maxSingleWinBets3) maxSingleWinBets3 = active3.winCount;
+    }
+    totalCost3 += active3.totalBets * stake;
+    totalPayout3 += active3.winCount * stake * odds3;
+
+    if (active4.winCount > 0) {
+      hitPeriods4++;
+      totalWinBets4 += active4.winCount;
+    }
+    totalCost4 += active4.totalBets * stake;
+    totalPayout4 += active4.winCount * stake * odds4;
+  }
+
+  const totalPeriods = records.length;
+  const netProfit3 = totalPayout3 - totalCost3;
+  const netProfit4 = totalPayout4 - totalCost4;
+
+  return {
+    totalPeriods,
+    betMode,
+    strategyId,
+    stake,
+    odds3,
+    odds4,
+    hitNormalGe2Periods,
+    pick3: {
+      hitPeriods: hitPeriods3,
+      hitRate: totalPeriods > 0 ? Number(((hitPeriods3 / totalPeriods) * 100).toFixed(2)) : 0,
+      totalWinBets: totalWinBets3,
+      maxSingleWinBets: maxSingleWinBets3,
+      totalCost: totalCost3,
+      totalPayout: totalPayout3,
+      netProfit: netProfit3,
+      roi: totalCost3 > 0 ? Number(((netProfit3 / totalCost3) * 100).toFixed(2)) : 0
+    },
+    pick4: {
+      hitPeriods: hitPeriods4,
+      hitRate: totalPeriods > 0 ? Number(((hitPeriods4 / totalPeriods) * 100).toFixed(2)) : 0,
+      totalWinBets: totalWinBets4,
+      totalCost: totalCost4,
+      totalPayout: totalPayout4,
+      netProfit: netProfit4,
+      roi: totalCost4 > 0 ? Number(((netProfit4 / totalCost4) * 100).toFixed(2)) : 0
+    }
+  };
+}
+
+/**
  * 历史回测与命中明细计算引擎
  * 支持按指定年份/期数范围、指定策略（或固定自定义7码）对每期开出的正码计算「三中三」与「四中四」命中组数及收益统计
  *
@@ -534,142 +710,22 @@ export function runHistoricalBacktest(allDraws = [], options = {}) {
   });
 
   const targetDraws = limit > 0 ? filteredDraws.slice(0, limit) : filteredDraws;
-  const fixedCustom =
-    Array.isArray(customNumbers) && customNumbers.length >= 4
-      ? normalizeNumbers(customNumbers, { sort: true, maxCount: 7 })
-      : null;
 
-  let totalPeriods = 0;
-  let hitPeriods3 = 0;
-  let totalWinBets3 = 0;
-  let totalCost3 = 0;
-  let totalPayout3 = 0;
+  const records = buildReplayRecords(allDraws, targetDraws, {
+    strategyId,
+    customNumbers,
+    stake,
+    odds3,
+    odds4
+  });
 
-  let hitPeriods4 = 0;
-  let totalWinBets4 = 0;
-  let totalCost4 = 0;
-  let totalPayout4 = 0;
+  const summary = summarizeReplay(records, {
+    stake,
+    odds3,
+    odds4,
+    betMode,
+    strategyId: customNumbers ? 'custom' : strategyId
+  });
 
-  let hitNormalGe2Periods = 0;
-  let maxSingleWinBets3 = 0;
-
-  const records = [];
-
-  for (let i = 0; i < targetDraws.length; i++) {
-    const draw = targetDraws[i];
-
-    //  찾기：由于 allDraws 按时间降序排列，draw 在 allDraws 中的下标之后即为严格早于它的历史记录
-    const idxInAll = allDraws.findIndex((item) => item.id === draw.id);
-    const priorSlice = idxInAll >= 0 ? allDraws.slice(idxInAll + 1, idxInAll + 65) : [];
-
-    let plan = null;
-    let sevenNumbers = fixedCustom;
-
-    if (!sevenNumbers) {
-      plan = generatePeriodPlan(priorSlice, {
-        year: draw.year,
-        periodNum: draw.periodNum,
-        date: draw.date
-      }, { strategyId });
-      sevenNumbers = plan.primary7;
-    }
-
-    const compoundEval = evaluate7CodeCompound(sevenNumbers, draw, { stake, odds3, odds4 });
-    const featured3Tickets = plan
-      ? plan.featuredPick3
-      : selectFeaturedCombinations(sevenNumbers, {}, null).top5Pick3;
-    const featured4Tickets = plan
-      ? plan.featuredPick4
-      : selectFeaturedCombinations(sevenNumbers, {}, null).top5Pick4;
-
-    const direct3Eval = evaluateDirectTickets(featured3Tickets, draw, {
-      stake,
-      odds3,
-      odds4,
-      targetSize: 3
-    });
-    const direct4Eval = evaluateDirectTickets(featured4Tickets, draw, {
-      stake,
-      odds3,
-      odds4,
-      targetSize: 4
-    });
-
-    const active3 = betMode === 'featured5' ? direct3Eval : compoundEval.pick3;
-    const active4 = betMode === 'featured5' ? direct4Eval : compoundEval.pick4;
-
-    totalPeriods++;
-    if (compoundEval.matchedNormalCount >= 2) hitNormalGe2Periods++;
-
-    if (active3.winCount > 0) {
-      hitPeriods3++;
-      totalWinBets3 += active3.winCount;
-      if (active3.winCount > maxSingleWinBets3) {
-        maxSingleWinBets3 = active3.winCount;
-      }
-    }
-    totalCost3 += active3.cost;
-    totalPayout3 += active3.payout;
-
-    if (active4.winCount > 0) {
-      hitPeriods4++;
-      totalWinBets4 += active4.winCount;
-    }
-    totalCost4 += active4.cost;
-    totalPayout4 += active4.payout;
-
-    records.push({
-      draw,
-      sevenNumbers,
-      matchedNormals: compoundEval.matchedNormals,
-      matchedNormalCount: compoundEval.matchedNormalCount,
-      specialMatched: compoundEval.specialMatched,
-      compoundEval,
-      direct3Eval,
-      direct4Eval,
-      active3,
-      active4,
-      strategies: plan ? plan.strategies : null
-    });
-  }
-
-  const netProfit3 = totalPayout3 - totalCost3;
-  const roi3 = totalCost3 > 0 ? Number(((netProfit3 / totalCost3) * 100).toFixed(2)) : 0;
-  const hitRate3 = totalPeriods > 0 ? Number(((hitPeriods3 / totalPeriods) * 100).toFixed(2)) : 0;
-
-  const netProfit4 = totalPayout4 - totalCost4;
-  const roi4 = totalCost4 > 0 ? Number(((netProfit4 / totalCost4) * 100).toFixed(2)) : 0;
-  const hitRate4 = totalPeriods > 0 ? Number(((hitPeriods4 / totalPeriods) * 100).toFixed(2)) : 0;
-
-  return {
-    summary: {
-      totalPeriods,
-      betMode,
-      strategyId: fixedCustom ? 'custom' : strategyId,
-      stake,
-      odds3,
-      odds4,
-      hitNormalGe2Periods,
-      pick3: {
-        hitPeriods: hitPeriods3,
-        hitRate: hitRate3,
-        totalWinBets: totalWinBets3,
-        maxSingleWinBets: maxSingleWinBets3,
-        totalCost: totalCost3,
-        totalPayout: totalPayout3,
-        netProfit: netProfit3,
-        roi: roi3
-      },
-      pick4: {
-        hitPeriods: hitPeriods4,
-        hitRate: hitRate4,
-        totalWinBets: totalWinBets4,
-        totalCost: totalCost4,
-        totalPayout: totalPayout4,
-        netProfit: netProfit4,
-        roi: roi4
-      }
-    },
-    records
-  };
+  return { summary, records };
 }

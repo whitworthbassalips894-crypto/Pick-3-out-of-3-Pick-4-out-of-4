@@ -78,6 +78,26 @@ export function normalizeNumbers(rawNums, options = {}) {
 }
 
 /**
+ * 命中分类：7 码中命中 k 个正码时的三中三 / 四中四命中结论与注数
+ *
+ * 规则（传统连码）：
+ *   - 三中三：k >= 3 命中，注数 C(k, 3)
+ *   - 四中四：k >= 4 命中，注数 C(k, 4)
+ *   - 特码不参与判定
+ *
+ * @param {number} k 命中正码个数
+ * @returns {{k: number, pick3: {isHit: boolean, betCount: number, required: number}, pick4: {isHit: boolean, betCount: number, required: number}}}
+ */
+export function classifyHitCount(k) {
+  const kk = Math.max(0, Math.min(6, Math.trunc(Number(k) || 0)));
+  return {
+    k: kk,
+    pick3: { isHit: kk >= 3, betCount: binomial(kk, 3), required: 3 },
+    pick4: { isHit: kk >= 4, betCount: binomial(kk, 4), required: 4 }
+  };
+}
+
+/**
  * 提取某期开奖的正码集合（严格仅取前 6 个正码：平一～平六）
  * @param {{ numbers?: Array<number|string>, special?: number|string } | Array<number|string>} draw
  * @returns {{ normalList: number[], normalSet: Set<number>, special: number|null }}
