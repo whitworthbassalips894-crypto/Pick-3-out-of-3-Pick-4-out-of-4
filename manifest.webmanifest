@@ -1,0 +1,20 @@
+{
+  "name": "六合彩「7码复式 · 三中三 / 四中四」每日选号工具",
+  "short_name": "7码三中三",
+  "description": "六合彩每日7码复式与5注三中三/四中四策略推荐、正码命中组数计算、2022-2026完整底库历史回放及自动同步 PWA 工具",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1120",
+  "theme_color": "#0f172a",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
