@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mark6-pick3-pick4-v1.0.0';
+const CACHE_NAME = 'mark6-pick3-pick4-v2.0.1-simple';
 const STATIC_ASSETS = [
   './',
   './index.html',

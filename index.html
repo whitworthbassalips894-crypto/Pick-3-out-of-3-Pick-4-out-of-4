@@ -6,516 +6,267 @@
   <meta name="theme-color" content="#0f172a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号网页工具（PWA单页版），支持5注三中三/四中四与5组策略方案、正码命中组数计算、2022-2026完整底库回放及自动同步" />
-  <title>六合彩「7码复式 · 三中三 / 四中四」每日选号工具</title>
+  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具（简洁一页版）：今日推荐、自选7码、开奖核对、历史回放一页搞定" />
+  <title>六合彩 7码复式 · 三中三 / 四中四</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="./assets/icon.svg" />
   <link rel="apple-touch-icon" href="./assets/icon.svg" />
   <link rel="stylesheet" href="./assets/styles.css" />
 </head>
 <body>
-  <!-- 顶部导航栏：仅保留4大核心模块 -->
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg" alt="7码三中三" class="brand-icon" />
-        <div>
-          <div class="brand-title">
-            六合彩 · 7码复式三中三 / 四中四
-            <span class="brand-badge" id="dbStatusBadge">底库加载中...</span>
-          </div>
-          <div class="brand-subtitle" id="latestDrawBanner">2022–2026 完整历史底库 · 仅核对6个正码（平一～平六）</div>
+        <img src="./assets/icon.svg" alt="" class="brand-icon" />
+        <div class="brand-text">
+          <div class="brand-title">六合彩 · 7码三中三 / 四中四 <span class="brand-badge" id="dbBadge">加载中…</span></div>
+          <div class="brand-subtitle" id="latestLine">仅核对前 6 个正码，特码不计入</div>
         </div>
       </div>
-
-      <nav class="module-nav" aria-label="核心功能模块">
-        <button type="button" class="nav-tab active" data-tab="daily">
-          <span>🎯 每日7码选号</span>
-        </button>
-        <button type="button" class="nav-tab" data-tab="entry">
-          <span>✍️ 录入开奖</span>
-        </button>
-        <button type="button" class="nav-tab" data-tab="history">
-          <span>📜 历史回放</span>
-        </button>
-        <button type="button" class="nav-tab" data-tab="sync">
-          <span>🔄 数据同步</span>
-        </button>
+      <nav class="anchor-nav" aria-label="本页导航">
+        <a href="#today">🎯 推荐</a>
+        <a href="#picker">🎛️ 自选</a>
+        <a href="#check">✍️ 核对</a>
+        <a href="#history">📜 回放</a>
+        <a href="#more">⚙️ 更多</a>
       </nav>
-    </div>
-
-    <!-- 全局收益参数与规则配置条 -->
-    <div class="config-strip">
-      <div class="config-strip-inner">
-        <div class="config-items">
-          <label class="config-field">
-            <span>单注本金(元):</span>
-            <input type="number" id="cfgStake" class="config-input" min="1" step="1" value="10" />
-          </label>
-          <label class="config-field">
-            <span>三中三赔率(倍):</span>
-            <input type="number" id="cfgOdds3" class="config-input" min="1" step="10" value="650" />
-          </label>
-          <label class="config-field">
-            <span>四中四赔率(倍):</span>
-            <input type="number" id="cfgOdds4" class="config-input" min="1" step="50" value="7500" />
-          </label>
-          <button type="button" class="btn btn-sm" id="btnResetOdds" title="恢复默认本金与赔率">恢复默认</button>
-        </div>
-        <div>
-          <span class="rule-pill">✓ 传统连码标准：仅核对前 6 个正码（平一～平六），特码不计入三中三/四中四</span>
-        </div>
-      </div>
     </div>
   </header>
 
   <main class="app-main">
-    <!-- ==================== 模块一：每日7码选号 ==================== -->
-    <section id="panel-daily" class="module-panel active">
-      <!-- 期号选择与双模式视图切换 -->
+
+    <!-- ① 今日推荐 -->
+    <section id="today" class="page-section">
+      <div class="section-head">
+        <h2>🎯 今日推荐</h2>
+        <div class="section-tools">
+          <select id="periodSelect" class="select-ctrl" aria-label="选择期数"></select>
+          <button type="button" class="btn btn-sm" id="btnNext">回到下一期</button>
+        </div>
+      </div>
+
+      <div class="hero-card">
+        <div class="hero-top">
+          <div class="hero-tags">
+            <span class="period-pill" id="heroPeriod">—</span>
+            <span class="tag tag-gold" id="heroStrategy">S1 · 综合量化主推</span>
+          </div>
+          <div class="hero-actions">
+            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">📋 复制本期方案</button>
+            <button type="button" class="btn btn-sm" id="btnCopy7">复制7码</button>
+            <button type="button" class="btn btn-sm" id="btnLoadMain">载入自选微调</button>
+          </div>
+        </div>
+
+        <div class="ball-row ball-row-lg" id="heroBalls"></div>
+        <p class="hero-meta" id="heroMeta"></p>
+        <div id="heroResult"></div>
+
+        <div class="grid-2 featured-grid">
+          <div class="featured-box">
+            <div class="featured-head">
+              <span class="featured-title pick3-color">★ 精选 5 注 · 三中三</span>
+              <button type="button" class="btn btn-sm" id="btnCopy3">复制</button>
+            </div>
+            <div class="ticket-list" id="pick3List"></div>
+          </div>
+          <div class="featured-box">
+            <div class="featured-head">
+              <span class="featured-title pick4-color">★ 精选 5 注 · 四中四</span>
+              <button type="button" class="btn btn-sm" id="btnCopy4">复制</button>
+            </div>
+            <div class="ticket-list" id="pick4List"></div>
+          </div>
+        </div>
+        <p class="hint-line" id="featuredCostLine"></p>
+      </div>
+
+      <details class="fold" id="foldStrategies">
+        <summary>更多策略 S1～S5 <span class="fold-note">点「用作主推」即可替换上面的推荐</span></summary>
+        <div class="fold-body">
+          <div id="strategiesBox"></div>
+        </div>
+      </details>
+    </section>
+
+    <!-- ② 自选 7 码 -->
+    <section id="picker" class="page-section">
+      <div class="section-head">
+        <h2>🎛️ 自选 7 码</h2>
+        <span class="section-note">点球选号（满 7 个）· 点下方已选球可设为「胆」锁定</span>
+      </div>
+
       <div class="card">
-        <div class="card-header" style="margin-bottom: 0; padding-bottom: 0; border-bottom: none;">
-          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
-            <span style="font-weight: 700; font-size: 0.9rem;">目标期数：</span>
-            <select id="dailyPeriodSelect" class="select-ctrl" aria-label="选择目标期数"></select>
-            <button type="button" class="btn btn-sm btn-primary" id="btnJumpNextPeriod">切回最新待开期</button>
+        <div class="matrix-49" id="grid49"></div>
+
+        <div class="picker-bar">
+          <div class="picker-selected">
+            <span class="picker-count">已选 <b id="selCount">0</b>/7</span>
+            <div class="ball-row" id="selRow"></div>
           </div>
-
-          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
-            <span style="font-size: 0.8rem; color: var(--text-secondary);">展示模式：</span>
-            <div class="segmented-bar" id="schemeModeBar">
-              <button type="button" class="seg-btn active" data-mode="both_modes">双模式全览</button>
-              <button type="button" class="seg-btn" data-mode="compound_only">7码复式全展开 + 精选5注</button>
-              <button type="button" class="seg-btn" data-mode="strategies_only">5组策略方案对比</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 主推 7码复式 + 精选 5注三中三 / 5注四中四 -->
-      <div id="sectionCompoundView">
-        <div class="hero-7code-box">
-          <div class="hero-top-row">
-            <div>
-              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <span class="period-pill" id="heroTargetLabel">2026年第297期 · 每日推荐</span>
-                <span class="tag tag-gold" id="heroStrategyBadge">S1 · 综合量化主推</span>
-                <span class="card-subtitle" id="heroSampleDesc">基于历史前置正码样本生成</span>
-              </div>
-            </div>
-            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-              <button type="button" class="btn btn-sm" id="btnCopyPrimaryScheme">📋 复制本期方案</button>
-              <button type="button" class="btn btn-sm" id="btnLoadToCustomPicker">🎛️ 载入选号盘微调</button>
-            </div>
-          </div>
-
-          <!-- 7码复式球行展示与当期开奖核对（若所选为已开奖期或模拟期） -->
-          <div class="grid-2" style="align-items: center;">
-            <div>
-              <div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 8px; display: flex; justify-content: space-between;">
-                <span>推荐「7码复式」（拆 C(7,3)=35注三中三 / C(7,4)=35注四中四）：</span>
-                <span id="heroWaveRatio" style="color: #fbbf24; font-weight: 600;"></span>
-              </div>
-              <div class="ball-row" id="heroSevenBalls"></div>
-            </div>
-
-            <div id="heroDrawResultBox" style="background: rgba(15, 23, 42, 0.78); border: 1px solid var(--border-highlight); border-radius: 11px; padding: 12px 14px;">
-              <!-- 动态渲染：待开奖提示 或 已开奖正码核对与收益 -->
-            </div>
-          </div>
-
-          <!-- 精选 5 注三中三 + 精选 5 注四中四 直选推荐 -->
-          <div class="grid-2" style="margin-top: 16px;">
-            <div style="background: rgba(11, 17, 32, 0.65); border: 1px solid var(--border-highlight); border-radius: 11px; padding: 14px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                  <span style="font-weight: 700; font-size: 0.92rem; color: #34d399;">★ 每期推荐 5 注「三中三」精选组合</span>
-                  <div class="card-subtitle">高共现协同优选 · 5注直选成本 <span id="lbl5Pick3Cost">50</span> 元</div>
-                </div>
-                <button type="button" class="btn btn-sm" id="btnCopy5Pick3">复制5注三中三</button>
-              </div>
-              <div class="ticket-list" id="featured5Pick3List"></div>
-            </div>
-
-            <div style="background: rgba(11, 17, 32, 0.65); border: 1px solid var(--border-highlight); border-radius: 11px; padding: 14px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                  <span style="font-weight: 700; font-size: 0.92rem; color: #fbbf24;">★ 每期推荐 5 注「四中四」精选组合</span>
-                  <div class="card-subtitle">四码联动优选 · 5注直选成本 <span id="lbl5Pick4Cost">50</span> 元</div>
-                </div>
-                <button type="button" class="btn btn-sm" id="btnCopy5Pick4">复制5注四中四</button>
-              </div>
-              <div class="ticket-list" id="featured5Pick4List"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 5 组策略方案对比（S1~S5） -->
-      <div id="sectionStrategiesView" class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">📊 5 组策略方案推荐对比（S1～S5 独立 7 码复式 & 精选直选）</div>
-            <div class="card-subtitle">点击任一策略可切换为主推方案，或直接载入下方 49 码选号盘</div>
-          </div>
-          <button type="button" class="btn btn-sm" id="btnCopyAll5Strategies">📋 复制全部5组方案</button>
-        </div>
-        <div class="strategy-grid" id="strategyCardsContainer"></div>
-      </div>
-
-      <!-- 49码交互选号盘 + 胆码锁定 + 7码复式 35注全展开与模拟开奖计算器 -->
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">🎛️ 49 码交互选号盘 · 7码复式全展开（C(7,3)=35注 / C(7,4)=35注）</div>
-            <div class="card-subtitle">点击球号选满 7 码（再次点击已选号码可设为「胆码」锁定），实时计算三中三与四中四命中明细</div>
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            <select id="pickerStrategySelect" class="select-ctrl" style="padding: 5px 10px; font-size: 0.8rem;">
-              <option value="composite">按 S1·综合量化 补全7码</option>
-              <option value="hot_warm">按 S2·热温动量 补全7码</option>
-              <option value="cold_rebound">按 S3·遗漏回补 补全7码</option>
-              <option value="tail_synergy">按 S4·同尾连码 补全7码</option>
-              <option value="zodiac_wave">按 S5·生肖波色 补全7码</option>
+          <div class="picker-actions">
+            <select id="fillStrategy" class="select-ctrl select-sm" aria-label="补齐策略">
+              <option value="composite">S1 综合补齐</option>
+              <option value="hot_warm">S2 热温补齐</option>
+              <option value="cold_rebound">S3 遗漏补齐</option>
+              <option value="tail_synergy">S4 同尾补齐</option>
+              <option value="zodiac_wave">S5 生肖波色补齐</option>
             </select>
-            <button type="button" class="btn btn-sm btn-primary" id="btnAutoFillByStrategy">✨ 智能生成/补齐7码</button>
-            <button type="button" class="btn btn-sm" id="btnClearCustomPicks">清空重选</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnFill">✨ 智能补齐</button>
+            <button type="button" class="btn btn-sm" id="btnUseMain">用主推7码</button>
+            <button type="button" class="btn btn-sm" id="btnCopyCustom">复制自选</button>
+            <button type="button" class="btn btn-sm" id="btnClearPicks">清空</button>
           </div>
         </div>
+        <p class="hint-line" id="customSummary"></p>
 
-        <!-- 49 码网格 -->
-        <div class="matrix-49" id="ballMatrix49"></div>
-
-        <!-- 当前已选 7 码与模拟核对栏 -->
-        <div class="grid-2" style="margin-top: 16px;">
-          <div style="background: #0f172a; border: 1px solid var(--border-highlight); border-radius: 11px; padding: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-              <span style="font-weight: 700; font-size: 0.9rem;">
-                当前选号 (<span id="customPickCount">7</span>/7 码)：
-              </span>
-              <span style="font-size: 0.75rem; color: var(--text-secondary);">提示：点击下方已选球可切换「胆」锁定</span>
-            </div>
-            <div class="ball-row" id="customSelectedBallsRow"></div>
-          </div>
-
-          <div style="background: #0f172a; border: 1px solid var(--border-highlight); border-radius: 11px; padding: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-weight: 700; font-size: 0.9rem;">正码命中测试（默认取当前期开奖，也可手动输入 6 个正码试算）：</span>
-              <button type="button" class="btn btn-sm" id="btnUsePeriodDrawForSim">填入当期正码</button>
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <input
-                type="text"
-                id="simNormalInput"
-                class="input-ctrl"
-                style="flex: 1;"
-                placeholder="输入6个开奖正码试算，如: 14 43 26 45 03 31"
-              />
-              <button type="button" class="btn btn-sm btn-primary" id="btnRunSimCalc">立即核算</button>
-            </div>
-            <div id="simCalcSummary" style="margin-top: 10px; font-size: 0.83rem;"></div>
-          </div>
+        <div class="sim-row">
+          <input type="text" id="simInput" class="input-ctrl" placeholder="试算：输入 6 个正码，如 14 43 26 45 03 31" inputmode="numeric" />
+          <button type="button" class="btn btn-sm" id="btnSimUseDraw">用当期正码</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btnSim">试算命中</button>
         </div>
+        <div id="simResult"></div>
 
-        <!-- 35 注三中三 / 35 注四中四 全展开列表 -->
-        <div style="margin-top: 16px;">
-          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px;">
-            <div class="segmented-bar" id="comboExpandTabBar">
-              <button type="button" class="seg-btn active" data-play="pick3">
-                三中三全展开 (<span id="lblComboCount3">35</span> 注)
-              </button>
-              <button type="button" class="seg-btn" data-play="pick4">
-                四中四全展开 (<span id="lblComboCount4">35</span> 注)
-              </button>
+        <details class="fold fold-inner" id="foldCombos">
+          <summary>展开全部组合（7码 = 35 注三中三 / 35 注四中四）</summary>
+          <div class="fold-body">
+            <div class="combo-head">
+              <div class="segmented-bar" id="comboTabs">
+                <button type="button" class="seg-btn active" data-play="pick3">三中三 35 注</button>
+                <button type="button" class="seg-btn" data-play="pick4">四中四 35 注</button>
+              </div>
+              <span class="hint-line" id="comboStats"></span>
             </div>
-            <div id="comboExpandStatsText" style="font-size: 0.82rem; color: var(--text-secondary);"></div>
+            <div class="combos-grid" id="comboGrid"></div>
           </div>
-          <div class="combos-35-grid" id="combos35Grid"></div>
+        </details>
+      </div>
+    </section>
+
+    <!-- ③ 开奖核对 -->
+    <section id="check" class="page-section">
+      <div class="section-head">
+        <h2>✍️ 开奖核对</h2>
+        <span class="section-note">输一期开奖，立即核对本期主推与自选，可保存到本地</span>
+      </div>
+
+      <div class="card">
+        <div class="entry-fields">
+          <label>年份<input type="number" id="entryYear" class="input-ctrl" min="2020" max="2035" /></label>
+          <label>期号<input type="number" id="entryPeriod" class="input-ctrl" min="1" max="366" /></label>
+          <label>日期<input type="date" id="entryDate" class="input-ctrl" /></label>
+          <label class="entry-line-wrap">6 正码 + 特码
+            <input type="text" id="entryLine" class="input-ctrl" placeholder="如：14 43 26 45 03 31 + 23" inputmode="numeric" />
+          </label>
+          <button type="button" class="btn btn-primary" id="btnSaveDraw">💾 保存这一期</button>
+        </div>
+        <div class="ball-row entry-slots" id="entrySlots"></div>
+        <div id="checkResult"></div>
+
+        <div class="local-box" id="localBox" hidden>
+          <div class="local-head">
+            <span>本地已保存 <b id="localCount">0</b> 期（仅存本机浏览器）</span>
+            <button type="button" class="btn btn-sm" id="btnClearLocal">清空本地</button>
+          </div>
+          <div id="localList"></div>
         </div>
       </div>
     </section>
 
-    <!-- ==================== 模块二：录入开奖 ==================== -->
-    <section id="panel-entry" class="module-panel">
-      <div class="grid-2">
-        <!-- 左侧：录入开奖表单 -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">✍️ 录入最新开奖号码</div>
-              <div class="card-subtitle">支持点选球号或单行快捷粘贴，保存后自动核对三中三与四中四命中收益</div>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;">
-            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-secondary);">
-              <span>年份</span>
-              <input type="number" id="entryYear" class="input-ctrl" value="2026" min="2020" max="2035" />
-            </label>
-            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-secondary);">
-              <span>期号 (如 297)</span>
-              <input type="number" id="entryPeriod" class="input-ctrl" value="297" min="1" max="366" />
-            </label>
-            <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-secondary);">
-              <span>开奖日期</span>
-              <input type="date" id="entryDate" class="input-ctrl" value="2026-10-24" />
-            </label>
-          </div>
-
-          <div style="margin-bottom: 12px;">
-            <label style="display: block; font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 5px;">
-              快捷单行输入（依次输入 6 个正码 + 1 个特码，用空格或逗号分隔）：
-            </label>
-            <div style="display: flex; gap: 8px;">
-              <input
-                type="text"
-                id="entryQuickLine"
-                class="input-ctrl"
-                style="flex: 1;"
-                placeholder="例如：14 43 26 45 03 31 + 23"
-              />
-              <button type="button" class="btn btn-sm" id="btnParseQuickEntry">解析填入</button>
-            </div>
-          </div>
-
-          <!-- 6 个正码 + 1 个特码 槽位展示 -->
-          <div style="background: #0f172a; border: 1px solid var(--border-highlight); border-radius: 11px; padding: 12px; margin-bottom: 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-size: 0.82rem; font-weight: 700;">
-                开奖球槽位（前 6 个为正码，第 7 个为特码）：
-              </span>
-              <button type="button" class="btn btn-sm" id="btnClearEntryBalls">清空球号</button>
-            </div>
-            <div class="ball-row" id="entrySlotsPreview"></div>
-          </div>
-
-          <!-- 49球快速点选键盘 -->
-          <div style="margin-bottom: 14px;">
-            <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px;">
-              点击下方号码依次填入「平一 ～ 平六」与「特码」：
-            </div>
-            <div class="matrix-49" id="entryBallKeypad" style="grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px;"></div>
-          </div>
-
-          <div style="display: flex; gap: 10px;">
-            <button type="button" class="btn btn-primary" id="btnSaveDrawEntry" style="flex: 1;">
-              💾 保存开奖记录并核对命中
-            </button>
-          </div>
-        </div>
-
-        <!-- 右侧：本期实时核对结果 & 本地已录入记录管理 -->
-        <div>
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">🎯 本期开奖实时核对预览（仅核对前 6 个正码）</div>
-                <div class="card-subtitle">自动对比该期「主推7码复式」、「5注精选直选」及「5大策略方案」</div>
-              </div>
-            </div>
-            <div id="entryLiveCheckOutput"></div>
-          </div>
-
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title">🗂️ 本地新增/修订记录列表</div>
-                <div class="card-subtitle">保存在浏览器本地存储中，自动与 2022–2026 底库合并</div>
-              </div>
-              <button type="button" class="btn btn-sm" id="btnClearLocalEntries">清空本地新增</button>
-            </div>
-            <div id="localCustomDrawsList"></div>
-          </div>
+    <!-- ④ 历史回放 -->
+    <section id="history" class="page-section">
+      <div class="section-head">
+        <h2>📜 历史回放</h2>
+        <div class="section-tools">
+          <select id="histYear" class="select-ctrl select-sm" aria-label="年份">
+            <option value="all">全部年份</option>
+          </select>
+          <input type="search" id="histSearch" class="input-ctrl input-sm" placeholder="搜期号 / 日期 / 号码" />
         </div>
       </div>
-    </section>
 
-    <!-- ==================== 模块三：历史回放（含三中三命中明细） ==================== -->
-    <section id="panel-history" class="module-panel">
       <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">📜 历史开奖回放 & 三中三 / 四中四 命中收益统计</div>
-            <div class="card-subtitle">内置 2022–2026 完整历史开奖底库，支持按策略或自定义 7 码逐期回放命中明细</div>
+        <p class="hint-line" id="histCount"></p>
+        <div class="history-list" id="histList"></div>
+        <div class="load-more-wrap">
+          <button type="button" class="btn" id="btnMoreHist">加载更多</button>
+        </div>
+
+        <details class="fold fold-inner" id="foldBacktest">
+          <summary>批量回测统计（多期汇总，按需计算；单期回放直接点上方列表）</summary>
+          <div class="fold-body">
+            <div class="bt-controls">
+              <select id="btStrategy" class="select-ctrl select-sm">
+                <option value="composite">S1 · 综合量化主推</option>
+                <option value="hot_warm">S2 · 热温动量</option>
+                <option value="cold_rebound">S3 · 遗漏回补</option>
+                <option value="tail_synergy">S4 · 同尾连码</option>
+                <option value="zodiac_wave">S5 · 生肖波色</option>
+                <option value="custom">用当前自选 7 码</option>
+              </select>
+              <select id="btMode" class="select-ctrl select-sm">
+                <option value="compound7">7码复式（35注/期）</option>
+                <option value="featured5">精选5注（5注/期）</option>
+              </select>
+              <select id="btLimit" class="select-ctrl select-sm">
+                <option value="30">最近 30 期</option>
+                <option value="60" selected>最近 60 期</option>
+                <option value="120">最近 120 期</option>
+                <option value="365">最近 365 期</option>
+              </select>
+              <button type="button" class="btn btn-sm btn-primary" id="btnBacktest">开始回测</button>
+            </div>
+            <div id="btResult"><p class="hint-line">回测只使用每一期之前的历史正码生成推荐（无未来函数），结果仅列出命中期数。</p></div>
           </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            <button type="button" class="btn btn-sm" id="btnUseCustom7InBacktest">
-              🔍 用当前选号盘7码回测历史
-            </button>
-          </div>
-        </div>
-
-        <!-- 筛选控制栏 -->
-        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px;">
-          <label style="font-size: 0.8rem; color: var(--text-secondary);">
-            年份：
-            <select id="histYearFilter" class="select-ctrl">
-              <option value="2026">2026年</option>
-              <option value="2025">2025年</option>
-              <option value="2024">2024年</option>
-              <option value="2023">2023年</option>
-              <option value="2022">2022年</option>
-              <option value="all">全部年份 (2022-2026)</option>
-            </select>
-          </label>
-
-          <label style="font-size: 0.8rem; color: var(--text-secondary);">
-            期数范围：
-            <select id="histLimitFilter" class="select-ctrl">
-              <option value="60">最近 60 期</option>
-              <option value="120">最近 120 期</option>
-              <option value="366" selected>全年 / 366 期</option>
-              <option value="2000">全部历史记录</option>
-            </select>
-          </label>
-
-          <label style="font-size: 0.8rem; color: var(--text-secondary);">
-            回测方案：
-            <select id="histStrategyFilter" class="select-ctrl">
-              <option value="composite">S1 · 综合量化主推 (7码)</option>
-              <option value="hot_warm">S2 · 热温动量策略 (7码)</option>
-              <option value="cold_rebound">S3 · 遗漏回补策略 (7码)</option>
-              <option value="tail_synergy">S4 · 同尾连码共振 (7码)</option>
-              <option value="zodiac_wave">S5 · 生肖波色动量 (7码)</option>
-              <option value="custom">当前选号盘自定义 7 码</option>
-            </select>
-          </label>
-
-          <label style="font-size: 0.8rem; color: var(--text-secondary);">
-            计费模式：
-            <select id="histBetModeFilter" class="select-ctrl">
-              <option value="compound7">7码复式全包 (35注/期)</option>
-              <option value="featured5">精选 5 注直选 (5注/期)</option>
-            </select>
-          </label>
-
-          <label style="font-size: 0.8rem; color: var(--text-secondary);">
-            命中筛选：
-            <select id="histHitFilter" class="select-ctrl">
-              <option value="all">全部期数</option>
-              <option value="hit3">仅看三中三命中 (≥3正码)</option>
-              <option value="hit4">仅看四中四命中 (≥4正码)</option>
-              <option value="hit2">命中 ≥2 个正码</option>
-            </select>
-          </label>
-
-          <input
-            type="search"
-            id="histSearchInput"
-            class="input-ctrl"
-            style="min-width: 170px; flex: 1;"
-            placeholder="搜期号 / 日期 / 号码..."
-          />
-        </div>
-
-        <!-- 汇总 KPI 统计看板 -->
-        <div class="kpi-grid" id="historyKpiGrid"></div>
-
-        <!-- 历史回放逐期列表 -->
-        <div class="history-list" id="historyRecordsContainer"></div>
-
-        <!-- 分页加载更多 -->
-        <div style="text-align: center; margin-top: 14px;" id="historyPaginationWrap">
-          <button type="button" class="btn" id="btnLoadMoreHistory">加载更多历史期数</button>
-        </div>
+        </details>
       </div>
     </section>
 
-    <!-- ==================== 模块四：数据同步 ==================== -->
-    <section id="panel-sync" class="module-panel">
-      <!-- 底库统计与在线同步 -->
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">🔄 开奖数据底库状态与在线同步</div>
-              <div class="card-subtitle">支持从仓库底库或远程开奖源拉取最新期数</div>
-            </div>
-          </div>
-
-          <div class="kpi-grid" id="syncStatsKpi" style="grid-template-columns: repeat(2, 1fr);"></div>
-
-          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px;">
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button type="button" class="btn btn-primary" id="btnSyncRepoJson">
-                ⚡ 从本仓库 draws.json 刷新底库
-              </button>
-              <button type="button" class="btn" id="btnTryFetchRemoteAm">
-                🌐 尝试抓取 2026kj.zkclhb.com:2025/am.html
-              </button>
-              <button type="button" class="btn" id="btnExportDrawsJson">
-                📥 导出完整底库 JSON
-              </button>
-            </div>
-            <div id="syncActionStatus" style="font-size: 0.82rem; color: var(--text-secondary);"></div>
-          </div>
-
-          <!-- GitHub Actions 每日定时抓取说明 -->
-          <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-color);">
-            <div style="font-weight: 700; font-size: 0.88rem; margin-bottom: 6px; color: #fbbf24;">
-              🤖 GitHub Actions 每日定时抓取配置已内置
-            </div>
-            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 8px;">
-              工作流文件 <code>.github/workflows/sync-draws.yml</code> 每日定时执行 <code>node scripts/sync_latest.mjs</code>，自动抓取
-              <code>https://2026kj.zkclhb.com:2025/am.html</code> 并幂等合并至 <code>data/draws.json</code> 与 <code>data/draws.js</code>。
-            </p>
-            <pre style="background: #090e1a; padding: 10px; border-radius: 8px; font-size: 0.76rem; color: #38bdf8; overflow-x: auto;"># 本地手动执行同步命令：
-npm run sync
-
-# 使用保存的 HTML 文件离线同步：
-node scripts/sync_latest.mjs --input 2026年·歷·史·記·錄.html</pre>
-          </div>
-        </div>
-
-        <!-- 粘贴导入兜底 + 本地文件导入 -->
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title">📋 粘贴导入兜底 / HTML·JSON 文件导入</div>
-              <div class="card-subtitle">
-                直接粘贴 <code>https://2026kj.zkclhb.com:2025/am.html</code> 的网页源码、网页复制文本或单行开奖记录
-              </div>
-            </div>
-            <div>
-              <label class="btn btn-sm" style="cursor: pointer;">
-                📂 选择 HTML/JSON 文件导入
-                <input type="file" id="syncFileInput" accept=".html,.htm,.json,.txt" style="display: none;" />
-              </label>
-            </div>
-          </div>
-
-          <textarea
-            id="pasteImportTextarea"
-            class="textarea-ctrl"
-            placeholder="支持以下任意格式粘贴导入：
-1. https://2026kj.zkclhb.com:2025/am.html 网页源码 (<dt><b>296</b>期(开奖时间:2026-10-23)</dt>...)
-2. 在开奖网页全选复制 (Ctrl+A / Ctrl+C) 的纯文本：
-   296期(开奖时间:2026-10-23) 14 蛇 43 鼠 26 蛇 45 狗 03 龙 31 鼠 23 猴
-3. 手工单行/多行格式：
-   297期 2026-10-24 08 15 22 31 39 45 + 12"
-          ></textarea>
-
-          <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px;">
-            <div style="display: flex; gap: 8px;">
-              <button type="button" class="btn btn-primary" id="btnParseAndMergePaste">
-                ✅ 解析并合并入库
-              </button>
-              <button type="button" class="btn" id="btnFillDemoPaste">
-                填入示例格式
-              </button>
-              <button type="button" class="btn" id="btnClearPasteBox">
-                清空
-              </button>
-            </div>
-            <span id="pasteParseResultMsg" style="font-size: 0.82rem; font-weight: 600;"></span>
-          </div>
-        </div>
+    <!-- ⑤ 更多：设置与数据（全部折叠） -->
+    <section id="more" class="page-section">
+      <div class="section-head">
+        <h2>⚙️ 更多</h2>
+        <span class="section-note">设置与数据维护，平时不用打开</span>
       </div>
+
+      <details class="fold">
+        <summary>本金与赔率设置</summary>
+        <div class="fold-body">
+          <div class="cfg-fields">
+            <label>单注本金（元）<input type="number" id="cfgStake" class="input-ctrl" min="1" step="1" value="10" /></label>
+            <label>三中三赔率（倍）<input type="number" id="cfgOdds3" class="input-ctrl" min="1" step="10" value="650" /></label>
+            <label>四中四赔率（倍）<input type="number" id="cfgOdds4" class="input-ctrl" min="1" step="50" value="7500" /></label>
+            <button type="button" class="btn btn-sm" id="btnResetCfg">恢复默认</button>
+          </div>
+          <p class="hint-line">规则：仅核对前 6 个正码（平一～平六），特码不计入三中三 / 四中四。7 码中 k 个正码时，三中三中 C(k,3) 注、四中四中 C(k,4) 注。</p>
+        </div>
+      </details>
+
+      <details class="fold">
+        <summary>数据同步与导入</summary>
+        <div class="fold-body">
+          <div class="sync-actions">
+            <button type="button" class="btn btn-sm btn-primary" id="btnSyncRepo">⚡ 刷新仓库底库 draws.json</button>
+            <button type="button" class="btn btn-sm" id="btnFetchRemote">🌐 尝试抓取远程开奖源</button>
+            <button type="button" class="btn btn-sm" id="btnExport">📥 导出底库 JSON</button>
+            <label class="btn btn-sm file-btn">📂 导入文件<input type="file" id="fileInput" accept=".html,.htm,.json,.txt" hidden /></label>
+          </div>
+          <p class="hint-line" id="syncStatus"></p>
+          <textarea id="pasteBox" class="textarea-ctrl" placeholder="粘贴导入：开奖网页源码、网页复制文本，或手工行如「297期 2026-10-24 08 15 22 31 39 45 + 12」"></textarea>
+          <div class="sync-actions">
+            <button type="button" class="btn btn-sm btn-primary" id="btnPasteMerge">✅ 解析并合并</button>
+            <button type="button" class="btn btn-sm" id="btnPasteDemo">填入示例</button>
+            <span class="hint-line" id="pasteMsg"></span>
+          </div>
+          <p class="hint-line">GitHub Actions 已配置每日自动同步（workflows/sync-draws.yml），本地也可运行 <code>npm run sync</code>。</p>
+        </div>
+      </details>
+
+      <p class="footer-note">本站为个人数据整理与娱乐参考工具，彩票结果随机，任何策略都不能保证中奖，请理性对待、量力而行。</p>
     </section>
   </main>
 
   <div class="toast-container" id="toastContainer"></div>
-
   <script type="module" src="./src/app.js"></script>
 </body>
 </html>
