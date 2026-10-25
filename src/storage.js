@@ -4,7 +4,9 @@
  * 设计要点：
  * 1. 键名保持稳定（mark6_pick3_*_v1），升级不丢用户的本金/赔率、自选号码、胆码、本地录入的开奖。
  * 2. 遇到损坏的 JSON / 非法数值 / 非法号码时静默降级为默认值，绝不让整页白屏。
- * 3. 兼容更早版本可能使用过的其它键名：优先按已知别名表迁移，再按「键名包含 config / draw / pick」做兜底扫描。
+ * 3. 兼容更早版本可能使用过的其它键名：优先按已知别名表迁移，再按「键名含 pick3/pk3」做窄范围兜底扫描。
+ *    ⚠ 绝不做无差别全键扫描：同一个 GitHub Pages 源下可能还部署着别的工具，
+ *       把别的工具的 `*_config` 当成本工具的赔率会直接改坏用户的投注参数。
  * 4. 所有函数都接受一个 storage 后端参数，方便单元测试用内存实现替换浏览器 localStorage。
  */
 
@@ -12,20 +14,38 @@
 export const STORAGE_KEYS = {
   CONFIG: 'mark6_pick3_config_v1',
   LOCAL_DRAWS: 'mark6_pick3_local_draws_v1',
-  CUSTOM_PICKS: 'mark6_pick3_custom_picks_v1'
+  CUSTOM_PICKS: 'mark6_pick3_custom_picks_v1',
+  RANDOM_SALT: 'mark6_pick3_random_salt_v1'
 };
 
 /** 历史上可能用过的其它键名（按优先级排列） */
 export const LEGACY_KEY_ALIASES = {
   CONFIG: ['mark6_pick3_config', 'mark6_config', 'pk3_config', 'pick3_config', 'config'],
   LOCAL_DRAWS: ['mark6_pick3_local_draws', 'mark6_local_draws', 'mark6_draws', 'pk3_local_draws', 'local_draws'],
-  CUSTOM_PICKS: ['mark6_pick3_custom_picks', 'mark6_picks', 'mark6_custom_picks', 'pk3_picks', 'custom_picks']
+  CUSTOM_PICKS: ['mark6_pick3_custom_picks', 'mark6_picks', 'mark6_custom_picks', 'pk3_picks', 'custom_picks'],
+  RANDOM_SALT: ['mark6_pick3_random_salt', 'pk3_random_salt']
 };
 
 const KEY_HINTS = {
   CONFIG: ['config', 'setting', 'odds', 'stake'],
   LOCAL_DRAWS: ['draw', 'result', 'history'],
   CUSTOM_PICKS: ['pick', 'ball', 'selection']
+};
+
+/**
+ * 兜底扫描时允许的键名特征：必须明确包含本工具标识，避免误伤同域其它工具
+ * （例如 mark6-lottery-tool-v2_config）
+ */
+const OWNER_KEY_PATTERN = /(^|[_.-])(pick3|pk3)([_.-]|$)/i;
+
+/** 各类数据期望的形状：形状不匹配的键一律不采用 */
+const VALUE_SHAPES = {
+  CONFIG: (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v)
+    && ('stake' in v || 'odds3' in v || 'odds4' in v || 'hitRule' in v),
+  LOCAL_DRAWS: (v) => Array.isArray(v),
+  CUSTOM_PICKS: (v) => Array.isArray(v)
+    || (Boolean(v) && typeof v === 'object' && (Array.isArray(v.picks) || Array.isArray(v.numbers) || Array.isArray(v.selection))),
+  RANDOM_SALT: (v) => Number.isFinite(Number(v))
 };
 
 function isStorageLike(backend) {
@@ -67,27 +87,46 @@ export function listKeys(backend) {
 }
 
 /**
- * 查找某个用途的候选键（规范键优先，其次别名表，最后按关键字兜底）
+ * 查找某个用途的候选键（规范键优先 → 已知别名表 → 含本工具标识的窄范围兜底扫描）
+ *
+ * 三道保险，避免把同域其它工具的数据当成本工具的数据：
+ *  1. 兜底扫描只认包含 pick3 / pk3 的键名；
+ *  2. 候选值必须通过该用途的形状校验；
+ *  3. 命中后立即停止，不会再匹配更弱的候选。
+ *
  * @param {object} backend
- * @param {'CONFIG'|'LOCAL_DRAWS'|'CUSTOM_PICKS'} kind
+ * @param {'CONFIG'|'LOCAL_DRAWS'|'CUSTOM_PICKS'|'RANDOM_SALT'} kind
  * @returns {string|null}
  */
 export function findSourceKey(backend, kind) {
   if (!isStorageLike(backend)) return null;
   const canonical = STORAGE_KEYS[kind];
-  if (backend.getItem(canonical) != null) return canonical;
+  const shapeOk = VALUE_SHAPES[kind];
+
+  const usable = (key) => {
+    if (key == null) return false;
+    const raw = backend.getItem(key);
+    if (raw == null) return false;
+    if (!shapeOk) return true;
+    const parsed = safeParse(raw);
+    return parsed !== undefined && shapeOk(parsed);
+  };
+
+  if (usable(canonical)) return canonical;
 
   for (const alias of LEGACY_KEY_ALIASES[kind] || []) {
-    if (backend.getItem(alias) != null) return alias;
+    if (usable(alias)) return alias;
   }
-  const hints = KEY_HINTS[kind] || [];
-  const lower = hints.map((h) => h.toLowerCase());
+
+  // 窄范围兜底：键名必须明确带有本工具标识
+  const hints = (KEY_HINTS[kind] || []).map((h) => h.toLowerCase());
   const candidate = listKeys(backend).find((k) => {
     const lk = String(k).toLowerCase();
-    if (lk === canonical.toLowerCase()) return false;
-    return lower.some((h) => lk.includes(h));
+    if (lk === String(canonical).toLowerCase()) return false;
+    if (!OWNER_KEY_PATTERN.test(lk)) return false;
+    return hints.some((h) => lk.includes(h));
   });
-  return candidate || null;
+  return candidate && usable(candidate) ? candidate : null;
 }
 
 /**
@@ -152,10 +191,23 @@ export function sanitizePicks(raw) {
 }
 
 /**
+ * 解析实际使用的键：规范键存在就用规范键（即使内容损坏也要报出来），否则回落到旧键迁移
+ * @param {object} backend
+ * @param {'CONFIG'|'LOCAL_DRAWS'|'CUSTOM_PICKS'|'RANDOM_SALT'} kind
+ * @returns {string|null}
+ */
+export function resolveKey(backend, kind) {
+  if (!isStorageLike(backend)) return null;
+  const canonical = STORAGE_KEYS[kind];
+  if (backend.getItem(canonical) != null) return canonical;
+  return findSourceKey(backend, kind);
+}
+
+/**
  * 读取并迁移本地持久化数据
  * @param {object} backend localStorage 兼容对象
  * @param {{defaults: object, normalizeDrawRecord: Function}} options
- * @returns {{config: object, localDraws: object[], customPicks: number[], pinnedPicks: number[], migrations: string[], errors: string[]}}
+ * @returns {{config: object, localDraws: object[], customPicks: number[], pinnedPicks: number[], randomSalt: number, migrations: string[], errors: string[]}}
  */
 export function loadPersistedState(backend, options = {}) {
   const defaults = options.defaults || {};
@@ -165,7 +217,7 @@ export function loadPersistedState(backend, options = {}) {
 
   // —— 配置 ——
   let config = { ...defaults };
-  const configKey = findSourceKey(backend, 'CONFIG');
+  const configKey = resolveKey(backend, 'CONFIG');
   if (configKey) {
     const parsed = safeParse(backend.getItem(configKey));
     const { config: clean, repaired } = sanitizeConfig(parsed, defaults);
@@ -178,7 +230,7 @@ export function loadPersistedState(backend, options = {}) {
 
   // —— 本地录入的开奖 ——
   let localDraws = [];
-  const drawsKey = findSourceKey(backend, 'LOCAL_DRAWS');
+  const drawsKey = resolveKey(backend, 'LOCAL_DRAWS');
   if (drawsKey) {
     const parsed = safeParse(backend.getItem(drawsKey));
     if (Array.isArray(parsed)) {
@@ -194,7 +246,7 @@ export function loadPersistedState(backend, options = {}) {
   // —— 自选号码 / 胆码 ——
   let customPicks = [];
   let pinnedPicks = [];
-  const picksKey = findSourceKey(backend, 'CUSTOM_PICKS');
+  const picksKey = resolveKey(backend, 'CUSTOM_PICKS');
   if (picksKey) {
     const parsed = safeParse(backend.getItem(picksKey));
     const { picks, pinned } = sanitizePicks(parsed);
@@ -205,7 +257,19 @@ export function loadPersistedState(backend, options = {}) {
     }
   }
 
-  return { config, localDraws, customPicks, pinnedPicks, migrations, errors };
+  // —— 随机注重摇次数 ——
+  let randomSalt = 0;
+  const saltKey = resolveKey(backend, 'RANDOM_SALT');
+  if (saltKey) {
+    const parsed = safeParse(backend.getItem(saltKey));
+    const n = Number(parsed);
+    if (Number.isFinite(n) && n >= 0) randomSalt = Math.floor(n);
+    if (saltKey !== STORAGE_KEYS.RANDOM_SALT) {
+      migrations.push(`${saltKey} → ${STORAGE_KEYS.RANDOM_SALT}`);
+    }
+  }
+
+  return { config, localDraws, customPicks, pinnedPicks, randomSalt, migrations, errors };
 }
 
 /**
@@ -236,4 +300,5 @@ export function persistMigratedState(backend, state) {
   safeSet(backend, STORAGE_KEYS.CONFIG, state.config);
   safeSet(backend, STORAGE_KEYS.LOCAL_DRAWS, state.localDraws);
   safeSet(backend, STORAGE_KEYS.CUSTOM_PICKS, { picks: state.customPicks, pinned: state.pinnedPicks });
+  safeSet(backend, STORAGE_KEYS.RANDOM_SALT, state.randomSalt || 0);
 }

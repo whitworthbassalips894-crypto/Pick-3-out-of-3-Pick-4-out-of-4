@@ -1,12 +1,12 @@
 /**
  * 六合彩「7码复式 · 三中三 / 四中四」每日选号工具前端主控制器
  *
- * 一页流结构：① 今日推荐 → ② 自选7码 → ③ 开奖核对 → ④ 历史回放 → ⑤ 更多（折叠）
- * 核心算法（strategy / combinatorics / parser）与底库 data/draws.js 保持不变。
+ * 一页流结构：① 今日推荐（每日 5 注） → ② 自选7码 → ③ 开奖核对 → ④ 历史回放 → ⑤ 更多（折叠）
  *
  * 关键约定：
+ *  - 「每日 5 注」= 1 注纯随机基线 + 4 注精选（见 src/dailyfive.js），随机注是随机对照。
  *  - 只核对前 6 个正码（平一～平六），特码只展示、不计入命中。
- *  - 历史回放严格「无未来函数」：第 T 期推荐只用 T 期之前的数据（由 strategy.buildReplayRecords 保证）。
+ *  - 历史回放严格「无未来函数」：第 T 期推荐只用 T 期之前的数据。
  *  - 任何异常都要给出明确提示，不能白屏，也不能永远停在「加载中…」。
  */
 
@@ -20,9 +20,14 @@ import {
   pad2,
   padPeriod
 } from './constants.js';
-import { classifyHitCount, evaluate7CodeCompound, evaluateDirectTickets, normalizeNumbers } from './combinatorics.js';
-import { mergeDraws, normalizeDrawRecord, parseDrawsInput } from './parser.js';
-import { buildReplayRecords, generatePeriodPlan, summarizeReplay } from './strategy.js';
+import { evaluate7CodeCompound, normalizeNumbers } from './combinatorics.js';
+import { isValidISODate, mergeDraws, normalizeDrawRecord, parseDrawsInput } from './parser.js';
+import {
+  buildCustomRecords,
+  buildDailyFiveRecords,
+  generateDailyFive,
+  summarizeDailyFive
+} from './dailyfive.js';
 import { RANDOM_BASELINE_7_CODE, formatPercent } from './statistics.js';
 import {
   STORAGE_KEYS,
@@ -34,7 +39,7 @@ import INITIAL_DB from '../data/draws.js';
 
 const PERIOD_SELECT_LIMIT = 120; // 期数下拉只放近期，避免上千个 option 撑爆 DOM
 const REPLAY_PAGE = 40; // 历史回放每页行数
-const REPLAY_CHUNK = 40; // 每批计算的期数（分批让出主线程，避免卡死）
+const REPLAY_CHUNK = 20; // 每批计算的期数（分批让出主线程，避免卡死）
 
 const state = {
   config: { ...DEFAULT_CONFIG },
@@ -43,7 +48,7 @@ const state = {
   allDraws: [],
 
   periodKey: 'NEXT', // 'NEXT' 或 draw.id（如 '2026-296'）
-  strategyId: 'composite', // 当前主推策略，默认 S1
+  randomSalt: 0, // 随机注的重摇次数（0 = 默认随机）
 
   customPicks: [],
   pinnedPicks: [],
@@ -59,14 +64,14 @@ const replay = {
   filtered: [],      // 经过筛选后的记录（表格与指标卡的数据源）
   running: false,
   visible: REPLAY_PAGE,
-  expanded: new Set(),
+  expanded: new Set(), // 展开的期号（用 draw.id，重新筛选后不会错位）
   filters: {
     year: 'all',
     range: '120',
     from: '',
     to: '',
-    strategy: 'composite',
-    mode: 'compound7',
+    strategy: 'daily5', // 'daily5' 每日 5 注 | 'custom' 当前自选 7 码
+    mode: 'compound7',  // 'compound7' 7码复式 | 'featured5' 精选5注
     hit: 'all',
     q: ''
   }
@@ -127,12 +132,14 @@ function amount(n) {
 
 const numsText = (nums) => (nums || []).map(pad2).join(' ');
 
+/** 所有进入 innerHTML 的外部文本都要过一遍 */
 function escapeHtml(str) {
   return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function ballHtml(num, opts = {}) {
@@ -177,6 +184,7 @@ function loadSavedState() {
   state.localDraws = persisted.localDraws;
   state.customPicks = persisted.customPicks;
   state.pinnedPicks = persisted.pinnedPicks;
+  state.randomSalt = persisted.randomSalt || 0;
   state.storageErrors = persisted.errors || [];
   if (persisted.migrations.length) {
     persistMigratedState(window.localStorage, persisted);
@@ -194,6 +202,9 @@ function saveLocalDraws() {
 function saveCustomPicks() {
   safeSet(window.localStorage, STORAGE_KEYS.CUSTOM_PICKS, { picks: state.customPicks, pinned: state.pinnedPicks });
 }
+function saveRandomSalt() {
+  safeSet(window.localStorage, STORAGE_KEYS.RANDOM_SALT, state.randomSalt);
+}
 
 function rebuildMergedDraws() {
   state.allDraws = mergeDraws(state.baseDraws, state.localDraws).merged;
@@ -202,8 +213,14 @@ function rebuildMergedDraws() {
 
 function getNextDrawMeta() {
   const latest = state.allDraws[0] || { year: 2026, periodNum: 296, date: '2026-10-23' };
-  const periodNum = (latest.periodNum || 0) + 1;
-  let date = '2026-10-24';
+  let year = latest.year;
+  let periodNum = (latest.periodNum || 0) + 1;
+  // 跨年：年末最后一期之后归入下一年第 1 期
+  if (periodNum > 366) {
+    year = year + 1;
+    periodNum = 1;
+  }
+  let date = `${year}-01-01`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(latest.date || '')) {
     const dt = new Date(`${latest.date}T12:00:00Z`);
     if (!Number.isNaN(dt.getTime())) {
@@ -211,7 +228,7 @@ function getNextDrawMeta() {
       date = dt.toISOString().slice(0, 10);
     }
   }
-  return { id: 'NEXT', year: latest.year, periodNum, period: padPeriod(periodNum), date, isUpcoming: true };
+  return { id: 'NEXT', year, periodNum, period: padPeriod(periodNum), date, isUpcoming: true };
 }
 
 function getPeriodContext() {
@@ -228,36 +245,47 @@ function getPeriodContext() {
   return { target: getNextDrawMeta(), draw: null, isUpcoming: true };
 }
 
-/** 生成/缓存某期的完整方案（内含 5 组策略），主推从 strategies 中按 state.strategyId 取 */
-function getPlan(target) {
-  const sig = `${target.year}-${target.periodNum}|${state.allDraws.length}:${state.allDraws[0]?.id || ''}`;
+/** 生成/缓存某期的「每日 5 注」 */
+function getFivePlan(target) {
+  const sig = `${target.year}-${target.periodNum}|${state.allDraws.length}:${state.allDraws[0]?.id || ''}|salt:${state.randomSalt}`;
   if (!planCache.has(sig)) {
-    planCache.set(sig, generatePeriodPlan(state.allDraws, { year: target.year, periodNum: target.periodNum, date: target.date }));
+    planCache.set(sig, generateDailyFive(
+      state.allDraws,
+      { year: target.year, periodNum: target.periodNum, date: target.date },
+      { randomSalt: state.randomSalt }
+    ));
   }
   return planCache.get(sig);
-}
-
-function primaryOf(plan) {
-  const strat = plan.strategies.find((s) => s.id === state.strategyId) || plan.strategies[0];
-  return { strat, seven: strat.numbers, pick3: strat.top5Pick3, pick4: strat.top5Pick4 };
 }
 
 const betConfig = () => ({ stake: state.config.stake, odds3: state.config.odds3, odds4: state.config.odds4 });
 
 /* ==================== 文案（复制用） ==================== */
 
-function schemeText(ctx, primary) {
-  const t = ctx.target;
+function fiveText(plan, target) {
   const lines = [
-    `${t.year}年第${t.period}期 7码复式（${primary.strat.code} · ${primary.strat.name}）`,
-    `7码：${numsText(primary.seven)}`,
-    '三中三精选5注：',
-    ...primary.pick3.map((t3, i) => `${i + 1}. ${numsText(t3)}`),
-    '四中四精选5注：',
-    ...primary.pick4.map((t4, i) => `${i + 1}. ${numsText(t4)}`),
-    '（仅核对前6个正码，特码不计入）'
+    `${target.year}年第${target.period}期 每日 5 注（1 注随机 + 4 注精选）`,
+    ''
   ];
+  for (const e of plan.five) {
+    lines.push(`${e.code} ${e.icon} ${e.name}：${numsText(e.numbers)}`);
+    lines.push(`  三中三精选5注：${e.featuredPick3.map((t) => numsText(t)).join(' / ')}`);
+    lines.push(`  四中四精选5注：${e.featuredPick4.map((t) => numsText(t)).join(' / ')}`);
+  }
+  if (plan.consensus.length) {
+    lines.push(`共识号（≥2 注精选同选）：${numsText(plan.consensus)}`);
+  }
+  lines.push('（仅核对前6个正码，特码不计入）');
   return lines.join('\n');
+}
+
+function fiveCardText(e) {
+  return [
+    `${e.code} ${e.icon} ${e.name}`,
+    `7码：${numsText(e.numbers)}`,
+    `三中三精选5注：${e.featuredPick3.map((t) => numsText(t)).join(' / ')}`,
+    `四中四精选5注：${e.featuredPick4.map((t) => numsText(t)).join(' / ')}`
+  ].join('\n');
 }
 
 /* ==================== 渲染：顶栏与期数 ==================== */
@@ -289,110 +317,128 @@ function populatePeriodSelect() {
   const recent = state.allDraws.slice(0, PERIOD_SELECT_LIMIT);
   if (state.periodKey !== 'NEXT' && !recent.some((d) => d.id === state.periodKey)) {
     const d = state.allDraws.find((x) => x.id === state.periodKey);
-    if (d) opts.push(`<option value="${d.id}">${d.year}年第${d.period}期 (${d.date})</option>`);
+    if (d) opts.push(`<option value="${escapeHtml(d.id)}">${d.year}年第${d.period}期 (${escapeHtml(d.date)})</option>`);
   }
   for (const d of recent) {
-    opts.push(`<option value="${d.id}">${d.year}年第${d.period}期 (${d.date}) · ${numsText(d.numbers)} + ${pad2(d.special)}</option>`);
+    opts.push(`<option value="${escapeHtml(d.id)}">${d.year}年第${d.period}期 (${escapeHtml(d.date)}) · ${numsText(d.numbers)} + ${pad2(d.special)}</option>`);
   }
   select.innerHTML = opts.join('');
   select.value = state.periodKey;
   if (select.value !== state.periodKey) select.value = 'NEXT';
 }
 
-/* ==================== 渲染：① 今日推荐 ==================== */
+/* ==================== 渲染：① 今日推荐（每日 5 注） ==================== */
 
-function ticketListHtml(tickets, evalResult) {
-  const details = evalResult?.details || [];
-  return tickets.map((nums, i) => {
-    const det = details[i];
-    const hitSet = det ? new Set(det.hitNums) : null;
-    const balls = nums.map((n) => ballHtml(n, { size: 'sm', hitSet, zodiac: false })).join('');
-    const status = det?.isWin
-      ? '<span class="tag tag-win">✓ 命中</span>'
-      : det ? `<span class="tag tag-muted">中 ${det.hitCount} 号</span>` : '';
-    return `<div class="ticket-item${det?.isWin ? ' ticket-win' : ''}"><span class="ticket-nums"><span class="ticket-idx">第${i + 1}注</span>${balls}</span>${status}</div>`;
+function fiveCardHtml(e, ctx, cfg) {
+  const t = ctx.target;
+  // 该注命中当期正码的号码集合（只取前 6 个正码，特码不参与）
+  const drawNormals = ctx.draw ? ctx.draw.numbers.slice(0, 6) : [];
+  const cardHitSet = ctx.draw ? new Set(e.numbers.filter((x) => drawNormals.includes(x))) : null;
+  const balls = e.numbers.map((n) => ballHtml(n, { size: 'sm', date: t.date, hitSet: cardHitSet })).join('');
+  const shape = e.shape || { odd: 0, even: 0, big: 0, small: 0, zone1: 0, zone2: 0, zone3: 0, red: 0, blue: 0, green: 0, sum: 0 };
+
+  let hitHtml = '';
+  if (ctx.draw) {
+    const ev = evaluate7CodeCompound(e.numbers, ctx.draw, cfg);
+    const p3 = ev.pick3;
+    const p4 = ev.pick4;
+    const combos3 = p3.winningCombos.map((c) => numsText(c.nums)).join('；');
+    const combos4 = p4.winningCombos.map((c) => numsText(c.nums)).join('；');
+    hitHtml = `
+      <div class="fc-hit">
+        <span class="tag ${ev.matchedNormalCount >= 3 ? 'tag-win' : 'tag-muted'}">中 ${ev.matchedNormalCount} 正码${ev.matchedNormals.length ? `（${numsText(ev.matchedNormals)}）` : ''}</span>
+        <span class="tag ${p3.winCount ? 'tag-win' : 'tag-muted'}">三中三 ${p3.winCount} 注</span>
+        <span class="tag ${p4.winCount ? 'tag-win' : 'tag-muted'}">四中四 ${p4.winCount} 注</span>
+        ${combos3 ? `<div class="fc-win">三中三组合：${combos3}</div>` : ''}
+        ${combos4 ? `<div class="fc-win">四中四组合：${combos4}</div>` : ''}
+      </div>`;
+  }
+
+  const ticketRow = (tickets, size) => tickets.map((nums, i) => {
+    const ballsHtml = nums.map((n) => miniBallHtml(n, {})).join('');
+    return `<div class="ticket-item"><span class="ticket-nums"><span class="ticket-idx">第${i + 1}注</span>${ballsHtml}</span></div>`;
   }).join('');
+
+  return `
+    <article class="five-card${e.random ? ' is-random' : ''}" data-five="${escapeHtml(e.id)}">
+      <header class="fc-head">
+        <span class="fc-icon">${e.icon}</span>
+        <span class="fc-code">${escapeHtml(e.code)}</span>
+        <span class="fc-name">${escapeHtml(e.name)}</span>
+        ${e.random ? '<span class="tag tag-muted">纯随机对照</span>' : '<span class="tag tag-gold">精选</span>'}
+      </header>
+      <div class="fc-balls">${balls}</div>
+      <div class="fc-shape">
+        <span>奇偶 ${shape.odd}/${shape.even}</span>
+        <span>大小 ${shape.big}/${shape.small}</span>
+        <span>三区 ${shape.zone1}-${shape.zone2}-${shape.zone3}</span>
+        <span>波色 ${shape.red}/${shape.blue}/${shape.green}</span>
+        <span>和值 ${shape.sum}</span>
+      </div>
+      ${hitHtml}
+      <details class="fc-fold">
+        <summary>精选 5 注三中三 / 5 注四中四</summary>
+        <div class="fc-fold-body">
+          <div class="fc-sub-title pick3-color">★ 三中三 5 注</div>
+          <div class="ticket-list">${ticketRow(e.featuredPick3, 3)}</div>
+          <div class="fc-sub-title pick4-color">★ 四中四 5 注</div>
+          <div class="ticket-list">${ticketRow(e.featuredPick4, 4)}</div>
+        </div>
+      </details>
+      <div class="fc-actions">
+        <button type="button" class="btn btn-sm" data-copy-five="${escapeHtml(e.id)}">复制本注</button>
+        <button type="button" class="btn btn-sm" data-load-five="${escapeHtml(e.id)}">载入自选</button>
+      </div>
+    </article>`;
 }
 
 function renderToday() {
   const ctx = getPeriodContext();
-  const plan = getPlan(ctx.target);
-  const primary = primaryOf(plan);
+  const plan = getFivePlan(ctx.target);
   const t = ctx.target;
   const cfg = betConfig();
 
   $('heroPeriod').textContent = ctx.isUpcoming
     ? `${t.year}年第${t.period}期 · 待开奖推荐`
     : `${t.year}年第${t.period}期 · 已开奖复盘`;
-  $('heroStrategy').textContent = `${primary.strat.code} · ${primary.strat.name}`;
-  $('heroMeta').textContent = `${primary.strat.rationale} · 基于此前 ${plan.priorSampleCount} 期正码`;
+  $('heroMeta').textContent = `每日 5 注（1 注随机基线 + 4 注精选）· 基于最近 ${plan.featureWindow} 期正码特征`;
+  $('btnResetRandom').disabled = state.randomSalt === 0;
 
-  let compound = null;
-  let eval3 = null;
-  let eval4 = null;
-  let heroHitSet = null;
+  $('fiveGrid').innerHTML = plan.five.map((e) => fiveCardHtml(e, ctx, cfg)).join('');
 
-  if (ctx.draw) {
-    compound = evaluate7CodeCompound(primary.seven, ctx.draw, cfg);
-    eval3 = evaluateDirectTickets(primary.pick3, ctx.draw, { ...cfg, targetSize: 3 });
-    eval4 = evaluateDirectTickets(primary.pick4, ctx.draw, { ...cfg, targetSize: 4 });
-    heroHitSet = new Set(compound.matchedNormals);
-  }
-
-  $('heroBalls').innerHTML = primary.seven.map((n) => ballHtml(n, { size: 'lg', hitSet: heroHitSet, date: t.date })).join('');
-  $('pick3List').innerHTML = ticketListHtml(primary.pick3, eval3);
-  $('pick4List').innerHTML = ticketListHtml(primary.pick4, eval4);
-  $('featuredCostLine').textContent =
-    `成本参考：精选每种 5 注 = ${5 * cfg.stake} 元；7码复式全包每种 35 注 = ${35 * cfg.stake} 元（单注 ${cfg.stake} 元，可在「更多」里改）`;
+  // 共识号：4 注精选里被 ≥2 注同时选中的号码
+  const consensusHtml = plan.consensus.length
+    ? `<span class="consensus-label">共识号（≥2 注精选同选）</span><span class="ball-row">${plan.consensus.map((n) => miniBallHtml(n, { hit: true })).join('')}</span>`
+    : '<span class="consensus-label">共识号</span><span class="hint-line">本期 4 注精选没有交集号码</span>';
+  $('consensusBox').innerHTML = consensusHtml;
 
   const box = $('heroResult');
   if (!ctx.draw) {
     box.innerHTML = `<div class="result-strip"><div class="result-label">这一期还没开奖</div><p class="hint-line">开奖后到下方「开奖核对」输一期号码即可核对；也可以在期数下拉里选往期看复盘。</p></div>`;
   } else {
-    const k = compound.matchedNormalCount;
-    const p3 = compound.pick3;
-    const p4 = compound.pick4;
-    const winCls = k >= 3 ? ' win' : '';
-    const winDetail = [
-      p3.winningCombos.length ? `<div>✓ 三中三命中组合（${p3.winningCombos.length} 注）：${p3.winningCombos.map((c) => numsText(c.nums)).join('；')}</div>` : '',
-      p4.winningCombos.length ? `<div>✓ 四中四命中组合（${p4.winningCombos.length} 注）：${p4.winningCombos.map((c) => numsText(c.nums)).join('；')}</div>` : ''
-    ].filter(Boolean).join('');
+    // 本期 5 注的整体表现（复式口径）
+    const perFive = plan.five.map((e) => {
+      const ev = evaluate7CodeCompound(e.numbers, ctx.draw, cfg);
+      return { e, ev };
+    });
+    const win3 = perFive.filter((p) => p.ev.pick3.winCount > 0).length;
+    const win4 = perFive.filter((p) => p.ev.pick4.winCount > 0).length;
+    const net3 = perFive.reduce((a, p) => a + p.ev.pick3.netProfit, 0);
+    const net4 = perFive.reduce((a, p) => a + p.ev.pick4.netProfit, 0);
     box.innerHTML = `
-      <div class="result-strip${winCls}">
-        <div class="result-label">本期开奖（正码 + 特码）· 7码命中 ${k} 个正码${compound.specialMatched ? '（另含特码，不计入）' : ''}</div>
-        <div class="ball-row">${drawBallsHtml(ctx.draw, { size: 'sm', hitSet: new Set(primary.seven) })}</div>
+      <div class="result-strip${win3 || win4 ? ' win' : ''}">
+        <div class="result-label">本期开奖（正码 + 特码）· 5 注中 ${win3} 注有三中三、${win4} 注有四中四</div>
+        <div class="ball-row">${drawBallsHtml(ctx.draw, { size: 'sm', hitSet: new Set(plan.five.flatMap((e) => e.numbers)) })}</div>
         <div class="kpi-inline">
-          <div class="kpi-chip"><div class="k-label">三中三（复式35注）中 ${p3.winCount} 注</div><div class="k-value ${p3.netProfit >= 0 ? 'positive' : 'negative'}">${money(p3.netProfit)}</div></div>
-          <div class="kpi-chip"><div class="k-label">四中四（复式35注）中 ${p4.winCount} 注</div><div class="k-value ${p4.netProfit >= 0 ? 'positive' : 'negative'}">${money(p4.netProfit)}</div></div>
-          <div class="kpi-chip"><div class="k-label">精选5注命中</div><div class="k-value gold">三中三 ${eval3.winCount} · 四中四 ${eval4.winCount}</div></div>
+          <div class="kpi-chip"><div class="k-label">三中三（5 注复式合计）</div><div class="k-value ${net3 >= 0 ? 'positive' : 'negative'}">${money(net3)}</div></div>
+          <div class="kpi-chip"><div class="k-label">四中四（5 注复式合计）</div><div class="k-value ${net4 >= 0 ? 'positive' : 'negative'}">${money(net4)}</div></div>
+          <div class="kpi-chip"><div class="k-label">逐注命中球数</div><div class="k-value gold">${perFive.map((p) => `${p.e.code} ${p.ev.matchedNormalCount}`).join(' · ')}</div></div>
         </div>
-        ${winDetail ? `<div class="win-detail">${winDetail}</div>` : ''}
       </div>`;
   }
 
-  renderStrategies(plan, ctx.draw);
-}
-
-function renderStrategies(plan, draw) {
-  $('strategiesBox').innerHTML = plan.strategies.map((s) => {
-    const active = s.id === state.strategyId;
-    let hitText = '';
-    if (draw) {
-      const ev = evaluate7CodeCompound(s.numbers, draw, betConfig());
-      hitText = ` · 本期中 ${ev.matchedNormalCount} 正码（三中三 ${ev.pick3.winCount} 注 / 四中四 ${ev.pick4.winCount} 注）`;
-    }
-    return `
-      <div class="strategy-row${active ? ' active' : ''}">
-        <span class="strategy-code">${s.code}</span>
-        <span class="strategy-name">${s.name}${active ? '（当前主推）' : ''}</span>
-        <span class="strategy-nums">${numsText(s.numbers)}</span>
-        <span class="row-actions">
-          <button type="button" class="btn btn-sm${active ? '' : ' btn-primary'}" data-use-strategy="${s.id}" ${active ? 'disabled' : ''}>用作主推</button>
-          <button type="button" class="btn btn-sm" data-load-nums="${s.numbers.join(',')}">载入自选</button>
-        </span>
-        <span class="strategy-why">${s.description} · ${s.rationale}${hitText}</span>
-      </div>`;
-  }).join('');
+  $('featuredCostLine').textContent =
+    `成本参考：每注 7 码全包 = 三中三 35 注 + 四中四 35 注 = ${70 * cfg.stake} 元；每注精选 5+5 = ${10 * cfg.stake} 元。5 注合计全包 ${350 * cfg.stake} 元 / 全精选 ${50 * cfg.stake} 元（单注 ${cfg.stake} 元，可在「更多」里改）`;
 }
 
 /* ==================== 渲染：② 自选 ==================== */
@@ -518,19 +564,6 @@ function readEntryFields() {
   };
 }
 
-/** 严格校验 YYYY-MM-DD（同时排除 2026-02-30 这类「格式对但日期不存在」的情况） */
-function isValidISODate(text) {
-  const s = String(text || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const [y, m, d] = s.split('-').map(Number);
-  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
-  const dt = new Date(`${s}T00:00:00Z`);
-  return Number.isFinite(dt.getTime())
-    && dt.getUTCFullYear() === y
-    && dt.getUTCMonth() + 1 === m
-    && dt.getUTCDate() === d;
-}
-
 /** 录入表单的展示用目标（非法时回退到下一期，避免出现 0 期 / 1970 年） */
 function entryTarget() {
   const f = readEntryFields();
@@ -571,17 +604,13 @@ function renderCheck() {
   }
 
   const draw = { numbers: nums.slice(0, 6), special: nums[6], date: t.date };
-  const plan = getPlan(t);
-  const primary = primaryOf(plan);
+  const plan = getFivePlan(t);
   const cfg = betConfig();
-  const ev = evaluate7CodeCompound(primary.seven, draw, cfg);
-  const e3 = evaluateDirectTickets(primary.pick3, draw, { ...cfg, targetSize: 3 });
-  const e4 = evaluateDirectTickets(primary.pick4, draw, { ...cfg, targetSize: 4 });
 
-  const lines = [
-    `<span class="tag ${ev.matchedNormalCount >= 3 ? 'tag-win' : 'tag-muted'}">主推7码 ${numsText(primary.seven)} · 中 ${ev.matchedNormalCount} 正码 · 三中三 ${ev.pick3.winCount} 注 / 四中四 ${ev.pick4.winCount} 注 · 复式净收益 三 ${money(ev.pick3.netProfit)} / 四 ${money(ev.pick4.netProfit)}</span>`,
-    `<span class="tag ${e3.winCount + e4.winCount > 0 ? 'tag-win' : 'tag-muted'}">精选5注 · 三中三中 ${e3.winCount} 注、四中四中 ${e4.winCount} 注</span>`
-  ];
+  const lines = plan.five.map((e) => {
+    const ev = evaluate7CodeCompound(e.numbers, draw, cfg);
+    return `<span class="tag ${ev.matchedNormalCount >= 3 ? 'tag-win' : 'tag-muted'}">${e.code} ${e.name} ${numsText(e.numbers)} · 中 ${ev.matchedNormalCount} 正码 · 三中三 ${ev.pick3.winCount} 注 / 四中四 ${ev.pick4.winCount} 注</span>`;
+  });
   if (state.customPicks.length === 7) {
     const cev = evaluate7CodeCompound(state.customPicks, draw, cfg);
     lines.push(`<span class="tag ${cev.matchedNormalCount >= 3 ? 'tag-win' : 'tag-muted'}">自选7码 ${numsText(state.customPicks)} · 中 ${cev.matchedNormalCount} 正码 · 三中三 ${cev.pick3.winCount} 注 / 四中四 ${cev.pick4.winCount} 注</span>`);
@@ -598,35 +627,26 @@ function renderLocalList() {
   $('localCount').textContent = state.localDraws.length;
   $('localList').innerHTML = state.localDraws.slice(0, 10).map((d) => `
     <div class="local-item">
-      <span><b>${d.year}年第${d.period}期</b> (${d.date})</span>
+      <span><b>${d.year}年第${d.period}期</b> (${escapeHtml(d.date)})</span>
       <span>${numsText(d.numbers)} + ${pad2(d.special)}</span>
-      <button type="button" class="btn btn-sm" data-del-local="${d.id}">删除</button>
+      <button type="button" class="btn btn-sm" data-del-local="${escapeHtml(d.id)}">删除</button>
     </div>`).join('');
 }
 
-/* ==================== ④ 历史回放（逐期回报表） ==================== */
-
-function strategyLabel(id) {
-  const map = {
-    composite: 'S1 综合量化主推',
-    hot_warm: 'S2 热温动量',
-    cold_rebound: 'S3 遗漏回补',
-    tail_synergy: 'S4 同尾连码',
-    zodiac_wave: 'S5 生肖波色',
-    custom: '当前自选 7 码'
-  };
-  return map[id] || id;
-}
+/* ==================== 渲染：④ 历史回放 ==================== */
 
 function populateYearTabs() {
   const years = [...new Set(state.allDraws.map((d) => d.year))].sort((a, b) => b - a);
   const host = $('histYearTabs');
   const cur = replay.filters.year;
   const options = ['all', ...years];
-  if (!options.includes(cur)) replay.filters.year = 'all';
+  // 注意：年份可能是数字也可能来自 DOM 的字符串，必须按字符串比较，
+  // 否则会把刚选中的年份误判成「非法值」并重置成 all（导致年份筛选失效）
+  if (!options.map((y) => String(y)).includes(String(cur))) replay.filters.year = 'all';
   host.innerHTML = options.map((y) => {
     const label = y === 'all' ? `全部 (${state.allDraws.length})` : `${y} (${state.allDraws.filter((d) => d.year === y).length})`;
-    return `<button type="button" class="pill${y === replay.filters.year ? ' active' : ''}" data-year="${y}">${label}</button>`;
+    const active = String(y) === String(replay.filters.year);
+    return `<button type="button" class="pill${active ? ' active' : ''}" data-year="${y}">${label}</button>`;
   }).join('');
   // 「全部」范围的下拉文案跟随真实期数变化
   const rangeAll = $('histRange')?.querySelector('option[value="all"]');
@@ -658,10 +678,11 @@ function applyReplayFilters(records) {
   const q = f.q.trim().toLowerCase();
   return records.filter((rec) => {
     const d = rec.draw;
-    if (f.hit === 'pick3' && !(rec.compoundEval.pick3.winCount > 0 || rec.direct3Eval.winCount > 0)) return false;
-    if (f.hit === 'pick4' && !(rec.compoundEval.pick4.winCount > 0 || rec.direct4Eval.winCount > 0)) return false;
-    if (f.hit === 'miss' && (rec.compoundEval.pick3.winCount > 0 || rec.compoundEval.pick4.winCount > 0
-      || rec.direct3Eval.winCount > 0 || rec.direct4Eval.winCount > 0)) return false;
+    const any3 = rec.five.some((e) => e.compoundEval.pick3.winCount > 0 || e.direct3Eval.winCount > 0);
+    const any4 = rec.five.some((e) => e.compoundEval.pick4.winCount > 0 || e.direct4Eval.winCount > 0);
+    if (f.hit === 'pick3' && !any3) return false;
+    if (f.hit === 'pick4' && !any4) return false;
+    if (f.hit === 'miss' && (any3 || any4)) return false;
     if (!q) return true;
     const hay = `${d.id} ${d.year}年第${d.period}期 ${d.date} ${numsText(d.numbers)} ${pad2(d.special)} ${d.numbers.join(',')}`;
     return hay.toLowerCase().includes(q);
@@ -711,19 +732,14 @@ async function runReplay({ recompute = true } = {}) {
   status.textContent = `正在逐期回放 ${targets.length} 期（每期只用该期之前的数据）…`;
 
   const cfg = betConfig();
-  const customNumbers = f.strategy === 'custom' ? state.customPicks : null;
   const records = [];
   const chunk = Math.max(1, REPLAY_CHUNK);
 
   for (let i = 0; i < targets.length; i += chunk) {
     if (token !== replay.token) return; // 已有新的计算任务，放弃本次结果
-    const part = buildReplayRecords(state.allDraws, targets.slice(i, i + chunk), {
-      strategyId: f.strategy === 'custom' ? 'composite' : f.strategy,
-      customNumbers,
-      stake: cfg.stake,
-      odds3: cfg.odds3,
-      odds4: cfg.odds4
-    });
+    const part = f.strategy === 'custom'
+      ? buildCustomRecords(state.allDraws, targets.slice(i, i + chunk), { ...cfg, customNumbers: state.customPicks })
+      : buildDailyFiveRecords(state.allDraws, targets.slice(i, i + chunk), { ...cfg, randomSalt: state.randomSalt });
     records.push(...part);
     status.textContent = `正在逐期回放… ${records.length}/${targets.length} 期`;
     // 让出主线程，保证筛选、滚动等交互不卡
@@ -741,34 +757,34 @@ async function runReplay({ recompute = true } = {}) {
   renderReplayTable();
 }
 
-/** 命中分类（k → 三中三 / 四中四 结论与注数） */
-function classify(rec) {
-  return classifyHitCount(rec.matchedNormalCount);
-}
-
-/** 单期收益（按当前投注方式与本金赔率实时计算） */
+/** 单期收益（按当前投注方式与本金赔率实时计算，跨全部注汇总） */
 function periodMoney(rec) {
   const cfg = betConfig();
   const featured = replay.filters.mode === 'featured5';
-  const p3 = featured ? rec.direct3Eval : rec.compoundEval.pick3;
-  const p4 = featured ? rec.direct4Eval : rec.compoundEval.pick4;
-  const cost3 = p3.totalBets * cfg.stake;
-  const cost4 = p4.totalBets * cfg.stake;
-  const payout3 = p3.winCount * cfg.stake * cfg.odds3;
-  const payout4 = p4.winCount * cfg.stake * cfg.odds4;
+  let wins3 = 0, wins4 = 0, cost3 = 0, cost4 = 0, payout3 = 0, payout4 = 0;
+  for (const e of rec.five) {
+    const p3 = featured ? e.direct3Eval : e.compoundEval.pick3;
+    const p4 = featured ? e.direct4Eval : e.compoundEval.pick4;
+    wins3 += p3.winCount;
+    wins4 += p4.winCount;
+    cost3 += p3.totalBets * cfg.stake;
+    cost4 += p4.totalBets * cfg.stake;
+    payout3 += p3.winCount * cfg.stake * cfg.odds3;
+    payout4 += p4.winCount * cfg.stake * cfg.odds4;
+  }
   return {
     featured,
-    p3: { wins: p3.winCount, bets: p3.totalBets, cost: cost3, payout: payout3, net: payout3 - cost3 },
-    p4: { wins: p4.winCount, bets: p4.totalBets, cost: cost4, payout: payout4, net: payout4 - cost4 }
+    p3: { wins: wins3, cost: cost3, payout: payout3, net: payout3 - cost3 },
+    p4: { wins: wins4, cost: cost4, payout: payout4, net: payout4 - cost4 }
   };
 }
 
-function resultCellHtml(cls, isHit, betText, combos, net) {
+function resultCellHtml(isHit, betText, combosText, net) {
   const badge = isHit
     ? '<span class="badge hit">命中</span>'
     : '<span class="badge miss">未中</span>';
-  const comboHtml = combos && combos.length
-    ? `<small class="win-combos">${combos.map((c) => numsText(c.nums)).join('；')}</small>`
+  const comboHtml = combosText
+    ? `<small class="win-combos">${combosText}</small>`
     : '';
   return `<div class="cell-res">
     ${badge}
@@ -780,71 +796,76 @@ function resultCellHtml(cls, isHit, betText, combos, net) {
 
 function replayRowHtml(rec, idx) {
   const d = rec.draw;
-  const hitSet = new Set(rec.matchedNormals);
-  const cls = classify(rec);
-  const m = periodMoney(rec);
+  const cfg = betConfig();
+  const featured = replay.filters.mode === 'featured5';
 
-  const sevenBalls = rec.sevenNumbers.map((n) => miniBallHtml(n, { hit: hitSet.has(n) })).join('');
-  const normalBalls = d.numbers.map((n) => miniBallHtml(n, { hit: hitSet.has(n), miss: !hitSet.has(n) })).join('');
+  // 当期 6 正码：命中任意一注的号码描边
+  const anyHit = new Set(rec.five.flatMap((e) => e.matchedNormals));
+  const normalBalls = d.numbers.map((n) => miniBallHtml(n, { hit: anyHit.has(n), miss: !anyHit.has(n) })).join('');
   const specialBall = d.special != null ? miniBallHtml(d.special, { special: true, miss: true }) : '<span class="badge special">—</span>';
-  const hitBalls = rec.matchedNormals.length
-    ? rec.matchedNormals.map((n) => miniBallHtml(n, { hit: true })).join('')
-    : '<span class="badge miss">无</span>';
 
-  const compound = !m.featured;
-  const p3BetText = compound
-    ? `复式 C(${cls.k},3)=${cls.pick3.betCount} 注`
-    : `精选 5 注中 ${m.p3.wins} 注`;
-  const p4BetText = compound
-    ? `复式 C(${cls.k},4)=${cls.pick4.betCount} 注`
-    : `精选 5 注中 ${m.p4.wins} 注`;
+  // 5 注逐注命中
+  const perFive = rec.five.map((e) => {
+    const k = e.matchedNormalCount;
+    const cls = k >= 3 ? 'hit' : k >= 1 ? 'warm' : 'miss';
+    return `<span class="badge ${cls}" title="${escapeHtml(e.name)} 命中 ${k} 个正码">${escapeHtml(e.code)} ${k}</span>`;
+  }).join(' ');
 
-  const feat3Wins = rec.direct3Eval.winCount;
-  const feat4Wins = rec.direct4Eval.winCount;
-  const featHtml = `
-    <div class="feat-cell">
-      <span class="badge ${feat3Wins ? 'hit' : 'miss'}">三 ${feat3Wins}/5</span>
-      <span class="badge ${feat4Wins ? 'hit' : 'miss'}">四 ${feat4Wins}/5</span>
-      <br /><button type="button" class="feat-btn" data-feat-toggle="${idx}">展开 5+5 注</button>
-    </div>`;
+  const m = periodMoney(rec);
+  const p3Hit = m.p3.wins > 0;
+  const p4Hit = m.p4.wins > 0;
+  const p3BetText = featured ? `精选 5 注中 ${m.p3.wins} 注` : `${rec.five.length} 注复式共 ${m.p3.wins} 注`;
+  const p4BetText = featured ? `精选 5 注中 ${m.p4.wins} 注` : `${rec.five.length} 注复式共 ${m.p4.wins} 注`;
 
-  const rowHit = cls.pick3.isHit || cls.pick4.isHit;
+  // 中奖组合：按投注方式取对应口径
+  const combos3 = rec.five.flatMap((e) => (featured ? e.direct3Eval.winningTickets : e.compoundEval.pick3.winningCombos)
+    .map((c) => ({ nums: c.nums, from: e.code })));
+  const combos4 = rec.five.flatMap((e) => (featured ? e.direct4Eval.winningTickets : e.compoundEval.pick4.winningCombos)
+    .map((c) => ({ nums: c.nums, from: e.code })));
+  const fmtCombos = (list) => list.slice(0, 3).map((c) => `${numsText(c.nums)}（${c.from}）`).join('；');
+
+  const rowHit = p3Hit || p4Hit;
 
   return `
-    <tr class="${rowHit ? 'row-hit' : ''}" data-row-idx="${idx}">
-      <td class="col-period">${d.year}-${d.period}<small>${d.date}</small></td>
-      <td><div class="cell-balls">${sevenBalls}</div></td>
+    <tr class="${rowHit ? 'row-hit' : ''}" data-row-idx="${idx}" data-draw-id="${escapeHtml(d.id)}">
+      <td class="col-period">${d.year}-${d.period}<small>${escapeHtml(d.date)}</small></td>
       <td><div class="cell-balls">${normalBalls}</div></td>
       <td class="col-special"><div class="cell-balls">${specialBall}</div></td>
-      <td class="col-hit"><div class="cell-balls">${hitBalls}</div></td>
-      <td class="cell-k">${cls.k}</td>
-      <td>${resultCellHtml('col-res', cls.pick3.isHit, p3BetText, rec.compoundEval.pick3.winningCombos, m.p3.net)}</td>
-      <td>${resultCellHtml('col-res', cls.pick4.isHit, p4BetText, rec.compoundEval.pick4.winningCombos, m.p4.net)}</td>
-      <td>${featHtml}</td>
+      <td class="col-hit"><div class="cell-five-hits">${perFive}</div></td>
+      <td>${resultCellHtml(p3Hit, p3BetText, fmtCombos(combos3), m.p3.net)}</td>
+      <td>${resultCellHtml(p4Hit, p4BetText, fmtCombos(combos4), m.p4.net)}</td>
+      <td class="col-feat"><button type="button" class="feat-btn" data-feat-toggle="${idx}">展开</button></td>
     </tr>`;
 }
 
 function featureDetailHtml(rec) {
   const cfg = betConfig();
-  const ticketRow = (det, odds, size) => det.map((d) => {
-    const balls = d.nums.map((n) => miniBallHtml(n, { hit: d.hitNums.includes(n), miss: !d.hitNums.includes(n) })).join('');
-    const badge = d.isWin ? '<span class="badge hit">命中</span>' : `<span class="badge miss">未中</span>`;
-    const payout = d.isWin ? ` 返奖 ${amount(d.payout)}` : '';
-    return `<tr><td>${d.index}</td><td><div class="feat-ticket">${balls}</div></td><td>${badge} 中 ${d.hitCount} 号</td><td>${payout}</td></tr>`;
-  }).join('');
-
-  const f3 = rec.direct3Eval;
-  const f4 = rec.direct4Eval;
-
+  const block = (e) => {
+    const f3 = e.direct3Eval;
+    const f4 = e.direct4Eval;
+    const hitSet = new Set(e.matchedNormals);
+    const balls = e.numbers.map((n) => miniBallHtml(n, { hit: hitSet.has(n), miss: !hitSet.has(n) })).join('');
+    const ticketRow = (det) => det.map((x) => {
+      const b = x.nums.map((n) => miniBallHtml(n, { hit: x.hitNums.includes(n), miss: !x.hitNums.includes(n) })).join('');
+      const badge = x.isWin ? '<span class="badge hit">命中</span>' : '<span class="badge miss">未中</span>';
+      const payout = x.isWin ? ` 返奖 ${amount(x.payout)}` : '';
+      return `<tr><td>${x.index}</td><td><div class="feat-ticket">${b}</div></td><td>${badge} 中 ${x.hitCount} 号</td><td>${payout}</td></tr>`;
+    }).join('');
+    return `
+      <div class="fd-five">
+        <div class="fd-head">${e.icon} ${escapeHtml(e.code)} ${escapeHtml(e.name)} <span class="fd-nums">${balls}</span></div>
+        <div class="fd-line">命中正码 ${e.matchedNormalCount} 个${e.matchedNormals.length ? `（${numsText(e.matchedNormals)}）` : ''} · 复式：三中三 ${e.compoundEval.pick3.winCount} 注 / 四中四 ${e.compoundEval.pick4.winCount} 注 · 精选：三中三 ${f3.winCount} 注 / 四中四 ${f4.winCount} 注</div>
+        <table class="fd-table">
+          <thead><tr><th>注</th><th>三中三精选 5 注（每注 ${amount(cfg.stake)}，命中 ${amount(cfg.stake * cfg.odds3)}）</th><th>结果</th><th>返奖</th></tr></thead>
+          <tbody>${ticketRow(f3.details)}</tbody>
+          <thead><tr><th>注</th><th>四中四精选 5 注（每注 ${amount(cfg.stake)}，命中 ${amount(cfg.stake * cfg.odds4)}）</th><th>结果</th><th>返奖</th></tr></thead>
+          <tbody>${ticketRow(f4.details)}</tbody>
+        </table>
+      </div>`;
+  };
   return `
-    <tr class="feat-detail"><td colspan="9">
-      <table>
-        <thead><tr><th>注</th><th>三中三精选 5 注（每注 ${amount(cfg.stake)}，命中 ${amount(cfg.stake * cfg.odds3)}）</th><th>结果</th><th>返奖</th></tr></thead>
-        <tbody>${ticketRow(f3.details, cfg.odds3, 3)}</tbody>
-        <thead><tr><th>注</th><th>四中四精选 5 注（每注 ${amount(cfg.stake)}，命中 ${amount(cfg.stake * cfg.odds4)}）</th><th>结果</th><th>返奖</th></tr></thead>
-        <tbody>${ticketRow(f4.details, cfg.odds4, 4)}</tbody>
-      </table>
-      <p class="hint-line">本期精选合计：三中三中 ${f3.winCount} 注 / 四中四中 ${f4.winCount} 注；7 码复式合计：三中三 ${rec.compoundEval.pick3.winCount} 注 / 四中四 ${rec.compoundEval.pick4.winCount} 注。</p>
+    <tr class="feat-detail"><td colspan="7">
+      ${rec.five.map(block).join('')}
     </td></tr>`;
 }
 
@@ -854,15 +875,16 @@ function renderReplayTable() {
   const visible = list.slice(0, replay.visible);
 
   if (!list.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="9">${
+    body.innerHTML = `<tr class="empty-row"><td colspan="7">${
       replay.running ? '正在计算…' : '当前筛选条件下没有命中的期次，试试放宽筛选或点「重新计算回放」。'
     }</td></tr>`;
   } else {
     body.innerHTML = visible.map(replayRowHtml).join('');
-    // 展开的详情行
-    for (const idx of replay.expanded) {
-      if (idx >= visible.length) continue;
-      const tr = body.querySelector(`tr[data-row-idx="${idx}"]`);
+    // 展开的详情行（按期号匹配，重新筛选后不会错位）
+    for (const drawId of replay.expanded) {
+      const idx = list.findIndex((r) => r.draw.id === drawId);
+      if (idx < 0 || idx >= visible.length) continue;
+      const tr = body.querySelector(`tr[data-draw-id="${CSS.escape(drawId)}"]`);
       if (!tr) continue;
       tr.insertAdjacentHTML('afterend', featureDetailHtml(list[idx]));
     }
@@ -878,70 +900,76 @@ function renderReplayTable() {
 
 function renderReplayMetrics() {
   const cfg = betConfig();
-  const summary = summarizeReplay(replay.filtered, {
+  const summary = summarizeDailyFive(replay.filtered, {
     stake: cfg.stake,
     odds3: cfg.odds3,
     odds4: cfg.odds4,
-    betMode: replay.filters.mode,
-    strategyId: replay.filters.strategy
+    betMode: replay.filters.mode
   });
 
-  const totalCost = summary.pick3.totalCost + summary.pick4.totalCost;
-  const totalPayout = summary.pick3.totalPayout + summary.pick4.totalPayout;
-  const totalNet = totalPayout - totalCost;
-  const totalRoi = totalCost > 0 ? ((totalNet / totalCost) * 100).toFixed(2) : '0.00';
   const modeLabel = replay.filters.mode === 'featured5' ? '精选 5 注 / 期' : '7 码复式 35 注 / 期';
+  const planLabel = replay.filters.strategy === 'custom' ? '当前自选 7 码' : '每日 5 注';
 
-  const card = (cls, head, value, sub, extra = '') => `
+  const card = (cls, head, value, sub) => `
     <div class="metric-card ${cls}">
-      <div class="mc-head"><span>${head}</span>${extra}</div>
+      <div class="mc-head"><span>${head}</span></div>
       <div class="mc-stat"><span class="mc-val">${value}</span></div>
       ${sub}
     </div>`;
 
-  const bar = (pct) => `<div class="mc-bar"><div class="mc-fill" style="width:${Math.min(100, Math.max(0, pct))}%"></div></div>`;
+  // 5 注逐注对比表
+  const rows = summary.catalog
+    .filter((c) => c.periods > 0)
+    .map((c) => `
+      <tr class="${c.random ? 'is-random' : ''}">
+        <td>${c.icon} ${escapeHtml(c.code)} ${escapeHtml(c.name)}</td>
+        <td>${c.avgHits}</td>
+        <td>${c.hit3Periods} 期 · ${c.hit3Rate}%</td>
+        <td>${c.hit4Periods} 期 · ${c.hit4Rate}%</td>
+        <td>${Math.round(c.payout).toLocaleString()}</td>
+        <td>${c.roi}%</td>
+      </tr>`).join('');
+
+  const compareCard = `
+    <div class="metric-card v-num mc-wide">
+      <div class="mc-head"><span>5 注逐注对比</span><span class="mc-label">随机期望 ${summary.expectedHits} 码/期</span></div>
+      <div class="table-scroll">
+        <table class="mc-table">
+          <thead>
+            <tr><th>注</th><th>场均命中</th><th>三中三命中</th><th>四中四命中</th><th>累计返奖(元)</th><th>ROI</th></tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="6">暂无数据</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="mc-sub">随机理论期望 7×6/49 = ${summary.expectedHits} 码/期；各注命中率都在随机波动范围内，<b>不代表任何策略有优势</b>。</div>
+    </div>`;
 
   $('histMetrics').innerHTML = [
-    card('v-other', '回测期数', `${summary.totalPeriods} <span class="mc-label">期</span>`,
+    card('v-other', '回测期数', `${summary.periods} <span class="mc-label">期</span>`,
       `<div class="mc-grid">
-        <div><span class="mc-sm">策略</span><b style="font-size:11px">${strategyLabel(replay.filters.strategy)}</b></div>
+        <div><span class="mc-sm">方案</span><b style="font-size:11px">${planLabel}</b></div>
         <div><span class="mc-sm">投注</span><b style="font-size:11px">${modeLabel.replace(' / 期', '')}</b></div>
         <div><span class="mc-sm">单注本金</span><b>${cfg.stake} 元</b></div>
       </div>
       <div class="mc-sub">仅使用每期之前的数据生成推荐（无未来函数）。</div>`),
-    card('v-num', '三中三命中',
-      `${summary.pick3.hitPeriods} <span class="mc-label">期 · ${summary.pick3.hitRate}%</span>`,
-      `${bar(summary.pick3.hitRate)}
-       <div class="mc-grid">
-        <div><span class="mc-sm">中奖注数</span><b>${summary.pick3.totalWinBets}</b></div>
-        <div><span class="mc-sm">成本(元)</span><b>${Math.round(summary.pick3.totalCost).toLocaleString()}</b></div>
-        <div><span class="mc-sm">返奖(元)</span><b>${Math.round(summary.pick3.totalPayout).toLocaleString()}</b></div>
-      </div>
-      <div class="mc-sub">净盈亏 <b>${money(summary.pick3.netProfit)}</b> · ROI ${summary.pick3.roi}% · 随机基线 ${formatPercent(RANDOM_BASELINE_7_CODE.pick3)}</div>`),
-    card('v-gold', '四中四命中',
-      `${summary.pick4.hitPeriods} <span class="mc-label">期 · ${summary.pick4.hitRate}%</span>`,
-      `${bar(summary.pick4.hitRate)}
-       <div class="mc-grid">
-        <div><span class="mc-sm">中奖注数</span><b>${summary.pick4.totalWinBets}</b></div>
-        <div><span class="mc-sm">成本(元)</span><b>${Math.round(summary.pick4.totalCost).toLocaleString()}</b></div>
-        <div><span class="mc-sm">返奖(元)</span><b>${Math.round(summary.pick4.totalPayout).toLocaleString()}</b></div>
-      </div>
-      <div class="mc-sub">净盈亏 <b>${money(summary.pick4.netProfit)}</b> · ROI ${summary.pick4.roi}% · 随机基线 ${formatPercent(RANDOM_BASELINE_7_CODE.pick4)}</div>`),
     card('v-green', '总成本 / 总返奖 / 净盈亏',
-      `${money(totalNet)}`,
+      `${money(summary.totalNet)}`,
       `<div class="mc-grid">
-        <div><span class="mc-sm">总成本(元)</span><b>${Math.round(totalCost).toLocaleString()}</b></div>
-        <div><span class="mc-sm">总返奖(元)</span><b>${Math.round(totalPayout).toLocaleString()}</b></div>
-        <div><span class="mc-sm">ROI</span><b>${totalRoi}%</b></div>
+        <div><span class="mc-sm">总成本(元)</span><b>${Math.round(summary.totalCost).toLocaleString()}</b></div>
+        <div><span class="mc-sm">总返奖(元)</span><b>${Math.round(summary.totalPayout).toLocaleString()}</b></div>
+        <div><span class="mc-sm">ROI</span><b>${summary.totalRoi}%</b></div>
       </div>
-      <div class="mc-sub">三中三与四中四分开统计（上两张卡），此处为两者合计，仅供参考。</div>`)
+      <div class="mc-sub">5 注合计（含随机对照注），仅供参考。</div>`),
+    compareCard
   ].join('');
 
-  const obs3 = summary.totalPeriods ? summary.pick3.hitRate / 100 : 0;
-  const obs4 = summary.totalPeriods ? summary.pick4.hitRate / 100 : 0;
+  const catalog3 = summary.catalog.filter((c) => c.periods > 0);
+  const obs3 = catalog3.length ? catalog3.reduce((a, c) => a + c.hit3Rate, 0) / catalog3.length : 0;
+  const obs4 = catalog3.length ? catalog3.reduce((a, c) => a + c.hit4Rate, 0) / catalog3.length : 0;
   $('histBaseline').innerHTML = `
-    <b>随机基线</b>：49 选 7、开出 6 个正码，超几何分布 P(k≥3)=<b>${formatPercent(RANDOM_BASELINE_7_CODE.pick3)}</b>（三中三）、P(k≥4)=<b>${formatPercent(RANDOM_BASELINE_7_CODE.pick4)}</b>（四中四）。
-    当前筛选范围观测：三中三 <b>${formatPercent(obs3)}</b>、四中四 <b>${formatPercent(obs4)}</b>。
+    <b>随机基线</b>：49 选 7、开出 6 个正码，超几何分布 P(k≥3)=<b>${formatPercent(RANDOM_BASELINE_7_CODE.pick3)}</b>（三中三）、P(k≥4)=<b>${formatPercent(RANDOM_BASELINE_7_CODE.pick4)}</b>（四中四）；
+    场均命中期望 <b>${summary.expectedHits}</b> 码/期。
+    当前筛选范围各注平均观测：三中三 <b>${obs3.toFixed(2)}%</b>、四中四 <b>${obs4.toFixed(2)}%</b>。
     ⚠ 历史回放只是对既有数据的统计回测，彩票结果随机，<b>不能保证未来中奖</b>，也不构成投注建议。`;
 }
 
@@ -982,40 +1010,39 @@ function bindEvents() {
     renderToday();
     renderPicker();
   });
-  $('btnCopy7').addEventListener('click', () => {
-    const primary = primaryOf(getPlan(getPeriodContext().target));
-    copyText(numsText(primary.seven), '7码已复制');
-  });
   $('btnCopyAll').addEventListener('click', () => {
     const ctx = getPeriodContext();
-    copyText(schemeText(ctx, primaryOf(getPlan(ctx.target))), '本期方案已复制');
+    copyText(fiveText(getFivePlan(ctx.target), ctx.target), '今日 5 注已复制');
   });
-  $('btnCopy3').addEventListener('click', () => {
-    const primary = primaryOf(getPlan(getPeriodContext().target));
-    copyText(primary.pick3.map((t, i) => `${i + 1}. ${numsText(t)}`).join('\n'), '5注三中三已复制');
+  $('btnRerollRandom').addEventListener('click', () => {
+    state.randomSalt += 1;
+    saveRandomSalt();
+    renderToday();
+    showToast(`随机注已重摇（第 ${state.randomSalt} 次）`);
   });
-  $('btnCopy4').addEventListener('click', () => {
-    const primary = primaryOf(getPlan(getPeriodContext().target));
-    copyText(primary.pick4.map((t, i) => `${i + 1}. ${numsText(t)}`).join('\n'), '5注四中四已复制');
+  $('btnResetRandom').addEventListener('click', () => {
+    if (state.randomSalt === 0) { showToast('已经是默认随机'); return; }
+    state.randomSalt = 0;
+    saveRandomSalt();
+    renderToday();
+    showToast('已恢复默认随机');
   });
-  $('btnLoadMain').addEventListener('click', () => {
-    const primary = primaryOf(getPlan(getPeriodContext().target));
-    setCustomPicks(primary.seven, { keepPinned: false });
-    document.getElementById('picker').scrollIntoView({ behavior: 'smooth' });
-    showToast('主推7码已载入自选，可继续微调');
-  });
-  $('strategiesBox').addEventListener('click', (e) => {
-    const useBtn = e.target.closest('[data-use-strategy]');
-    if (useBtn && !useBtn.disabled) {
-      state.strategyId = useBtn.dataset.useStrategy;
-      renderToday();
-      showToast('已切换主推策略');
+  $('fiveGrid').addEventListener('click', (e) => {
+    const copyBtn = e.target.closest('[data-copy-five]');
+    if (copyBtn) {
+      const plan = getFivePlan(getPeriodContext().target);
+      const entry = plan.five.find((x) => x.id === copyBtn.dataset.copyFive);
+      if (entry) copyText(fiveCardText(entry), `${entry.code} ${entry.name} 已复制`);
       return;
     }
-    const loadBtn = e.target.closest('[data-load-nums]');
+    const loadBtn = e.target.closest('[data-load-five]');
     if (loadBtn) {
-      setCustomPicks(loadBtn.dataset.loadNums.split(',').map(Number), { keepPinned: false });
-      document.getElementById('picker').scrollIntoView({ behavior: 'smooth' });
+      const plan = getFivePlan(getPeriodContext().target);
+      const entry = plan.five.find((x) => x.id === loadBtn.dataset.loadFive);
+      if (!entry) return;
+      setCustomPicks(entry.numbers, { keepPinned: false });
+      $('picker').scrollIntoView({ behavior: 'smooth' });
+      showToast(`${entry.code} ${entry.name} 的 7 码已载入自选，可继续微调`);
     }
   });
 
@@ -1049,19 +1076,16 @@ function bindEvents() {
   });
   $('btnFill').addEventListener('click', () => {
     const ctx = getPeriodContext();
-    const pinned = state.pinnedPicks.length ? state.pinnedPicks : state.customPicks.slice(0, 6);
-    const plan = generatePeriodPlan(
-      state.allDraws,
-      { year: ctx.target.year, periodNum: ctx.target.periodNum, date: ctx.target.date },
-      { pinnedNumbers: pinned, strategyId: $('fillStrategy').value }
-    );
-    state.pinnedPicks = pinned.filter((n) => plan.primary7.includes(n));
-    setCustomPicks(plan.primary7);
-    showToast(state.pinnedPicks.length ? `已保留胆码 ${numsText(state.pinnedPicks)} 并补齐7码` : '已生成7码');
-  });
-  $('btnUseMain').addEventListener('click', () => {
-    const primary = primaryOf(getPlan(getPeriodContext().target));
-    setCustomPicks(primary.seven, { keepPinned: false });
+    const plan = getFivePlan(ctx.target);
+    const sourceId = $('fillStrategy').value;
+    const entry = plan.five.find((x) => x.id === sourceId) || plan.five[1];
+    if (!entry) { showToast('没有可用的方案'); return; }
+    const pinned = state.pinnedPicks.length ? state.pinnedPicks : [];
+    // 胆码优先，其余用该注的号码补齐到 7 个
+    const merged = [...new Set([...pinned, ...entry.numbers])].slice(0, 7);
+    state.pinnedPicks = pinned.filter((n) => merged.includes(n));
+    setCustomPicks(merged, { keepPinned: true });
+    showToast(state.pinnedPicks.length ? `已保留胆码 ${numsText(state.pinnedPicks)} 并补齐7码` : `已按 ${entry.code} ${entry.name} 补齐7码`);
   });
   $('btnCopyCustom').addEventListener('click', () => {
     if (!state.customPicks.length) { showToast('还没有选号'); return; }
@@ -1136,7 +1160,7 @@ function bindEvents() {
     state.localDraws = state.localDraws.filter((d) => d.id !== btn.dataset.delLocal);
     saveLocalDraws();
     refreshAfterDataChange();
-    showToast('已删除该期本地记录');
+    showToast('已删除该期本地开奖');
   });
   $('btnClearLocal').addEventListener('click', () => {
     if (!state.localDraws.length) { showToast('本地没有保存的开奖'); return; }
@@ -1203,39 +1227,39 @@ function bindEvents() {
   $('histBody').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-feat-toggle]');
     if (!btn) return;
-    const idx = Number(btn.dataset.featToggle);
-    if (replay.expanded.has(idx)) replay.expanded.delete(idx);
-    else replay.expanded.add(idx);
+    const tr = btn.closest('tr[data-draw-id]');
+    const id = tr?.dataset.drawId;
+    if (!id) return;
+    if (replay.expanded.has(id)) {
+      replay.expanded.delete(id);
+    } else {
+      replay.expanded.add(id);
+    }
     renderReplayTable();
   });
 
-  /* ⑤ 设置 */
-  const onConfigChange = () => {
-    const stake = Number($('cfgStake').value);
-    const odds3 = Number($('cfgOdds3').value);
-    const odds4 = Number($('cfgOdds4').value);
-    if (!Number.isFinite(stake) || stake <= 0) { showToast('⚠ 单注本金必须是大于 0 的数字'); renderHeader(); return; }
-    if (!Number.isFinite(odds3) || odds3 <= 0 || !Number.isFinite(odds4) || odds4 <= 0) {
-      showToast('⚠ 赔率必须是大于 0 的数字');
+  /* ⑤ 设置与数据 */
+  ['cfgStake', 'cfgOdds3', 'cfgOdds4'].forEach((id) => {
+    $(id).addEventListener('input', () => {
+      const stake = Number($('cfgStake').value);
+      const odds3 = Number($('cfgOdds3').value);
+      const odds4 = Number($('cfgOdds4').value);
+      if (!Number.isFinite(stake) || stake <= 0) { showToast('⚠ 单注本金必须是大于 0 的数字'); renderHeader(); return; }
+      if (!Number.isFinite(odds3) || odds3 <= 0 || !Number.isFinite(odds4) || odds4 <= 0) { showToast('⚠ 赔率必须是大于 0 的数字'); return; }
+      state.config = { ...state.config, stake, odds3, odds4 };
+      saveConfig();
       renderHeader();
-      return;
-    }
-    state.config.stake = stake;
-    state.config.odds3 = odds3;
-    state.config.odds4 = odds4;
-    saveConfig();
-    renderToday();
-    renderPicker();
-    renderCheck();
-    // 金额按当前本金/赔率实时重算，推荐结果不变
-    if (replay.records.length) {
-      replay.filtered = applyReplayFilters(replay.records);
-      renderReplayTable();
-    }
-  };
-  ['cfgStake', 'cfgOdds3', 'cfgOdds4'].forEach((id) => $(id).addEventListener('change', onConfigChange));
+      renderToday();
+      renderPicker();
+      renderCheck();
+      if (replay.records.length) {
+        replay.filtered = applyReplayFilters(replay.records);
+        renderReplayTable();
+      }
+    });
+  });
   $('btnResetCfg').addEventListener('click', () => {
-    state.config = { ...state.config, stake: DEFAULT_CONFIG.stake, odds3: DEFAULT_CONFIG.odds3, odds4: DEFAULT_CONFIG.odds4 };
+    state.config = { ...DEFAULT_CONFIG };
     saveConfig();
     renderHeader();
     renderToday();
@@ -1247,11 +1271,8 @@ function bindEvents() {
     }
     showToast('已恢复默认本金与赔率');
   });
-
-  /* ⑤ 版本与缓存维护 */
   $('btnCheckUpdate').addEventListener('click', async () => {
     const status = $('updateStatus');
-    if (!('serviceWorker' in navigator)) { status.textContent = '当前环境不支持 Service Worker（例如 file:// 直接打开）。'; return; }
     status.textContent = '正在检查更新…';
     try {
       const reg = await navigator.serviceWorker.getRegistration();
@@ -1342,8 +1363,11 @@ function bindEvents() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `draws-${state.allDraws[0]?.id || 'export'}.json`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // 延迟回收，避免部分浏览器在下载开始前就把 Blob URL 释放掉
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
     showToast(`已导出 ${state.allDraws.length} 期底库 JSON`);
   });
 
@@ -1397,9 +1421,15 @@ function scheduleReplay({ recompute }) {
   }, 120);
 }
 
+/** 本工具专属的缓存名前缀（与 sw.js 保持一致） */
+const CACHE_PREFIX = 'mark6-pick3-pick4-';
+
 /**
- * 修复缓存：清空 Cache Storage + 让 Service Worker 重新安装 + 带随机参数重载
+ * 修复缓存：清空本工具的 Cache Storage + 让 Service Worker 重新安装 + 带随机参数重载
  * 绝不触碰 localStorage（本金赔率 / 自选号码 / 胆码 / 本地录入的开奖都会保留）
+ *
+ * 注意：同一个 GitHub Pages 源下可能还挂着其它工具，
+ *      因此只清理本工具前缀的缓存、只注销属于本页面路径的 Service Worker。
  * @param {{hard?: boolean, message?: string}} [opts] hard=true 时额外注销 Service Worker
  */
 async function repairCache(opts = {}) {
@@ -1407,14 +1437,22 @@ async function repairCache(opts = {}) {
   try {
     if (window.caches?.keys) {
       const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
+      await Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX)).map((k) => caches.delete(k)));
     }
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
+      const scopePath = new URL('./', location.href).pathname;
+      const mine = regs.filter((r) => {
+        try {
+          return new URL(r.scope).pathname.startsWith(scopePath);
+        } catch {
+          return false;
+        }
+      });
       if (hard) {
-        await Promise.all(regs.map((r) => r.unregister()));
+        await Promise.all(mine.map((r) => r.unregister()));
       } else {
-        await Promise.all(regs.map((r) => r.update().catch(() => {})));
+        await Promise.all(mine.map((r) => r.update().catch(() => {})));
       }
     }
     showToast(message);

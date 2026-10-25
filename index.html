@@ -6,23 +6,23 @@
   <meta name="theme-color" content="#f6f8fb" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具：下一期推荐、自选7码、开奖核对、逐期历史回放（明确标注命中与注数）" />
+  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选7码、开奖核对、逐期历史回放（明确标注命中与注数）" />
   <title>六合彩 7码复式 · 三中三 / 四中四</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.24-r3" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.24-r3" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.24-r3" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.24-r3" />
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.25-r4" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.25-r4" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.25-r4" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.25-r4" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.24-r3" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.25-r4" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
             六合彩 · 7码三中三 / 四中四
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.24-r3</span>
+            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.25-r4</span>
           </div>
           <div class="brand-subtitle" id="latestLine">仅核对前 6 个正码，特码不计入</div>
         </div>
@@ -56,10 +56,10 @@
       </p>
     </section>
 
-    <!-- ① 今日推荐 -->
+    <!-- ① 今日推荐：每日 5 注（1 注纯随机 + 4 注精选） -->
     <section id="today" class="page-section">
       <div class="section-head">
-        <h2><span class="sec-bar"></span>今日推荐</h2>
+        <h2><span class="sec-bar"></span>今日推荐 · 每日 5 注</h2>
         <div class="section-tools">
           <select id="periodSelect" class="select-ctrl" aria-label="选择期数"></select>
           <button type="button" class="btn btn-sm" id="btnNext">回到下一期</button>
@@ -70,44 +70,23 @@
         <div class="hero-top">
           <div class="hero-tags">
             <span class="period-pill" id="heroPeriod">—</span>
-            <span class="tag tag-gold" id="heroStrategy">S1 · 综合量化主推</span>
+            <span class="tag tag-gold" id="heroMeta">—</span>
           </div>
           <div class="hero-actions">
-            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">复制本期方案</button>
-            <button type="button" class="btn btn-sm" id="btnCopy7">复制7码</button>
-            <button type="button" class="btn btn-sm" id="btnLoadMain">载入自选微调</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">复制今日 5 注</button>
+            <button type="button" class="btn btn-sm" id="btnRerollRandom">重摇随机注</button>
+            <button type="button" class="btn btn-sm" id="btnResetRandom">恢复默认随机</button>
           </div>
         </div>
 
-        <div class="ball-row ball-row-lg" id="heroBalls"></div>
-        <p class="hero-meta" id="heroMeta"></p>
         <div id="heroResult"></div>
 
-        <div class="grid-2 featured-grid">
-          <div class="featured-box">
-            <div class="featured-head">
-              <span class="featured-title pick3-color">★ 精选 5 注 · 三中三</span>
-              <button type="button" class="btn btn-sm" id="btnCopy3">复制</button>
-            </div>
-            <div class="ticket-list" id="pick3List"></div>
-          </div>
-          <div class="featured-box">
-            <div class="featured-head">
-              <span class="featured-title pick4-color">★ 精选 5 注 · 四中四</span>
-              <button type="button" class="btn btn-sm" id="btnCopy4">复制</button>
-            </div>
-            <div class="ticket-list" id="pick4List"></div>
-          </div>
-        </div>
+        <div class="consensus-box" id="consensusBox"></div>
+
+        <div class="five-grid" id="fiveGrid"></div>
+
         <p class="hint-line" id="featuredCostLine"></p>
       </div>
-
-      <details class="fold" id="foldStrategies">
-        <summary>更多策略 S1～S5 <span class="fold-note">点「用作主推」即可替换上面的推荐</span></summary>
-        <div class="fold-body">
-          <div id="strategiesBox"></div>
-        </div>
-      </details>
     </section>
 
     <!-- ② 自选 7 码 -->
@@ -126,15 +105,14 @@
             <div class="ball-row" id="selRow"></div>
           </div>
           <div class="picker-actions">
-            <select id="fillStrategy" class="select-ctrl select-sm" aria-label="补齐策略">
-              <option value="composite">S1 综合补齐</option>
-              <option value="hot_warm">S2 热温补齐</option>
-              <option value="cold_rebound">S3 遗漏补齐</option>
-              <option value="tail_synergy">S4 同尾补齐</option>
-              <option value="zodiac_wave">S5 生肖波色补齐</option>
+            <select id="fillStrategy" class="select-ctrl select-sm" aria-label="补齐来源">
+              <option value="random">#1 随机基线</option>
+              <option value="hot_momentum" selected>#2 热势恒强</option>
+              <option value="omission_rebound">#3 遗漏回补</option>
+              <option value="transition_cooccur">#4 关联共振</option>
+              <option value="balanced_quota">#5 三区波色均衡</option>
             </select>
             <button type="button" class="btn btn-sm btn-primary" id="btnFill">智能补齐</button>
-            <button type="button" class="btn btn-sm" id="btnUseMain">用主推7码</button>
             <button type="button" class="btn btn-sm" id="btnCopyCustom">复制自选</button>
             <button type="button" class="btn btn-sm" id="btnClearPicks">清空</button>
           </div>
@@ -225,13 +203,9 @@
             <input type="date" id="histTo" class="input-ctrl input-sm" aria-label="结束日期" />
           </div>
           <div class="filter-group">
-            <span class="filter-label">策略</span>
-            <select id="histStrategy" class="select-ctrl select-sm" aria-label="回放策略">
-              <option value="composite">S1 · 综合量化主推</option>
-              <option value="hot_warm">S2 · 热温动量</option>
-              <option value="cold_rebound">S3 · 遗漏回补</option>
-              <option value="tail_synergy">S4 · 同尾连码</option>
-              <option value="zodiac_wave">S5 · 生肖波色</option>
+            <span class="filter-label">方案</span>
+            <select id="histStrategy" class="select-ctrl select-sm" aria-label="回放方案">
+              <option value="daily5">每日 5 注（1 随机 + 4 精选）</option>
               <option value="custom">当前自选 7 码</option>
             </select>
           </div>
@@ -267,14 +241,12 @@
             <thead>
               <tr>
                 <th class="col-period">期号 / 日期</th>
-                <th class="col-balls">推荐 7 码</th>
-                <th class="col-balls">实际 6 正码</th>
+                <th class="col-balls">当期 6 正码</th>
                 <th class="col-special">特码</th>
-                <th class="col-hit">命中正码</th>
-                <th class="col-k">k</th>
+                <th class="col-hit">5 注逐注命中</th>
                 <th class="col-res">三中三</th>
                 <th class="col-res">四中四</th>
-                <th class="col-feat">精选 5 注</th>
+                <th class="col-feat">详情</th>
               </tr>
             </thead>
             <tbody id="histBody"></tbody>
@@ -316,10 +288,12 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.24-r3</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.25-r4</p>
           <p class="hint-line">
-            「修复缓存」会注销本工具的 Service Worker 并清空它的 Cache Storage，然后自动重载；
+            「修复缓存」只清理<b>本工具</b>的 Cache Storage（标记 <code>mark6-pick3-pick4-*</code>）并重新加载页面，
+            同域下其它工具的缓存与 Service Worker 不受影响；
             <b>不会</b>删除 localStorage 里的本金赔率、自选号码、胆码与本地录入的开奖。
+            想彻底重置（连 Service Worker 一起注销）请点「彻底重置（注销 SW）」。
           </p>
         </div>
       </details>
@@ -345,7 +319,7 @@
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.24-r3</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.25-r4</b> ·
         本站为个人数据整理与娱乐参考工具，彩票结果随机，任何策略都不能保证中奖，请理性对待、量力而行。
       </p>
     </section>
@@ -376,17 +350,26 @@
       window.__SHOW_BOOT_ERROR__ = showBootError;
 
       // —— 兜底的「修复缓存并重载」：即使 app.js 彻底没跑起来也能自救 ——
+      // ⚠ 只清理本工具前缀的缓存、只注销本页面作用域的 Service Worker：
+      //    同一个 Pages 源下可能还有别的工具，误删它们的缓存会导致那些页面白屏。
+      var CACHE_PREFIX = 'mark6-pick3-pick4-';
       function hardRepair(hard) {
         try {
           if (window.caches && caches.keys) {
             caches.keys().then(function (keys) {
-              return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+              return Promise.all(keys.filter(function (k) {
+                return k.indexOf(CACHE_PREFIX) === 0;
+              }).map(function (k) { return caches.delete(k); }));
             });
           }
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function (regs) {
-              if (hard) return Promise.all(regs.map(function (r) { return r.unregister(); }));
-              return Promise.all(regs.map(function (r) { return r.update().catch(function () {}); }));
+              var scopePath = new URL('./', location.href).pathname;
+              var mine = regs.filter(function (r) {
+                try { return new URL(r.scope).pathname.indexOf(scopePath) === 0; } catch (e) { return false; }
+              });
+              if (hard) return Promise.all(mine.map(function (r) { return r.unregister(); }));
+              return Promise.all(mine.map(function (r) { return r.update().catch(function () {}); }));
             });
           }
         } catch (e) { /* ignore */ }
@@ -427,6 +410,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.24-r3"></script>
+  <script type="module" src="./src/app.js?v=2026.10.25-r4"></script>
 </body>
 </html>

@@ -88,3 +88,71 @@ test('样式表为浅色主题（背景 / 卡片 / 文字 / 边框 / 金色强�
   assert.ok(!css.includes('--card: #111827'), '不能残留旧版深色卡片变量');
   assert.ok(!/background:\s*#0b1120/i.test(css), '不能残留旧版深色背景硬编码');
 });
+
+test('Service Worker 只清理本工具前缀的缓存，不误伤同域其它工具', () => {
+  const sw = read('sw.js');
+  // 去掉注释后再检查代码，避免把注释里的反例写法当成真实实现
+  const code = sw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // activate 清理条件必须是 CACHE_PREFIX，不能用 includes('mark6') 这种宽条件
+  const activateIdx = code.indexOf("'activate'");
+  assert.ok(activateIdx > 0);
+  const activateBlock = code.slice(activateIdx, activateIdx + 900);
+  assert.ok(
+    activateBlock.includes('k.startsWith(CACHE_PREFIX)'),
+    'activate 阶段只能按本工具的缓存前缀清理'
+  );
+  assert.ok(
+    !activateBlock.includes('includes('),
+    '不能按 mark6 关键字宽泛清理（会误删同域其它工具的缓存）'
+  );
+  // CLEAR_CACHES 消息同样受限
+  const clearIdx = code.indexOf('CLEAR_CACHES');
+  assert.ok(clearIdx > 0);
+  const clearBlock = code.slice(clearIdx, clearIdx + 700);
+  assert.ok(clearBlock.includes('CACHE_PREFIX'), 'CLEAR_CACHES 也必须限定在本工具前缀内');
+  assert.ok(!clearBlock.includes('includes('), 'CLEAR_CACHES 不能按关键字清空全部缓存');
+});
+
+test('Service Worker 的底库路径用相对路径（兼容子目录部署）', () => {
+  const sw = read('sw.js');
+  const m = sw.match(/const DATA_FILES = \[([^\]]+)\]/);
+  assert.ok(m, '必须声明 DATA_FILES');
+  for (const p of m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, ''))) {
+    assert.ok(p.startsWith('./'), `底库路径必须以 ./ 开头（子目录部署会 404）：${p}`);
+  }
+});
+
+test('Service Worker 的外壳清单包含新引擎 dailyfive.js', () => {
+  const sw = read('sw.js');
+  assert.ok(sw.includes("'./src/dailyfive.js'"), '离线时必须能加载 src/dailyfive.js');
+  assert.ok(sw.includes("'./src/app.js'"));
+});
+
+test('页面结构：每日 5 注（1 随机 + 4 精选）+ 共识号，且已移除策略切换器', () => {
+  const html = read('index.html');
+  assert.ok(html.includes('id="fiveGrid"'), '必须有 5 注卡片容器');
+  assert.ok(html.includes('id="consensusBox"'), '必须有共识号容器');
+  assert.ok(html.includes('id="btnRerollRandom"'), '必须有「重摇随机注」');
+  assert.ok(html.includes('id="btnResetRandom"'), '必须有「恢复默认随机」');
+  assert.ok(html.includes('每日 5 注'), '标题要写明每日 5 注');
+
+  // 旧版的策略切换器必须彻底移除
+  for (const gone of ['id="strategiesBox"', 'id="foldStrategies"', 'id="btnUseMain"', 'id="heroStrategy"', 'id="pick3List"', 'id="pick4List"']) {
+    assert.ok(!html.includes(gone), `旧结构 ${gone} 必须移除`);
+  }
+  // 回放表头
+  assert.ok(html.includes('5 注逐注命中'));
+  assert.ok(html.includes('当期 6 正码'));
+  assert.ok(html.includes('特码'));
+  assert.ok(html.includes('三中三'));
+  assert.ok(html.includes('四中四'));
+  assert.ok(html.includes('详情'));
+});
+
+test('回放方案下拉只有「每日 5 注」与「当前自选 7 码」两种', () => {
+  const html = read('index.html');
+  const block = /<select id="histStrategy"[\s\S]*?<\/select>/.exec(html);
+  assert.ok(block, '必须有 histStrategy 下拉');
+  const values = [...block[0].matchAll(/value="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(values, ['daily5', 'custom']);
+});

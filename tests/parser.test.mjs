@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isValidISODate,
   mergeDraws,
   normalizeDateString,
+  normalizeDrawRecord,
   parseAmHtml,
   parseDrawsInput,
   parsePlainTextDraws
@@ -102,4 +104,54 @@ test('mergeDraws is idempotent and sorts descending by year and periodNum', () =
   const { merged: mergedAgain, addedCount: addedAgain } = mergeDraws(merged, d2);
   assert.equal(mergedAgain.length, 2);
   assert.equal(addedAgain, 0);
+});
+
+test('isValidISODate 拒绝不存在的日期与注入载荷', () => {
+  assert.equal(isValidISODate('2026-10-24'), true);
+  assert.equal(isValidISODate('2026-02-28'), true);
+  assert.equal(isValidISODate('2024-02-29'), true); // 闰年
+  assert.equal(isValidISODate('2026-02-30'), false);
+  assert.equal(isValidISODate('2026-13-45'), false);
+  assert.equal(isValidISODate('2026-00-10'), false);
+  assert.equal(isValidISODate('2026-10-32'), false);
+  assert.equal(isValidISODate('26-10-24'), false);
+  assert.equal(isValidISODate('2026/10/24'), false);
+  assert.equal(isValidISODate('<img src=x onerror=alert(1)>'), false);
+  assert.equal(isValidISODate(''), false);
+  assert.equal(isValidISODate(null), false);
+});
+
+test('normalizeDrawRecord 丢弃非法日期，但保留记录本身（不丢开奖数据）', () => {
+  const rec = normalizeDrawRecord({
+    year: 2026,
+    periodNum: 298,
+    date: '2026-13-45',
+    numbers: [1, 2, 3, 4, 5, 6],
+    special: 7
+  });
+  assert.ok(rec);
+  assert.equal(rec.id, '2026-298');
+  assert.equal(rec.date, '2026-01-01'); // 非法日期回落到安全默认值
+  assert.deepEqual(rec.numbers, [1, 2, 3, 4, 5, 6]);
+});
+
+test('normalizeDrawRecord 拒绝带注入载荷的日期（不会进 innerHTML）', () => {
+  const rec = normalizeDrawRecord({
+    year: 2026,
+    periodNum: 299,
+    date: '<img src=x onerror="window.__XSS__=true">',
+    numbers: [1, 2, 3, 4, 5, 6],
+    special: 7
+  });
+  assert.ok(rec);
+  assert.ok(!rec.date.includes('img'));
+  assert.ok(!rec.date.includes('onerror'));
+  assert.equal(rec.date, '2026-01-01');
+});
+
+test('parseDrawsInput 解析出的记录日期都必须是合法日期', () => {
+  const parsed = parseDrawsInput('298期 2026-13-45 01 02 03 04 05 06 + 07');
+  for (const rec of parsed) {
+    assert.ok(isValidISODate(rec.date), `日期必须合法：${rec.date}`);
+  }
 });
