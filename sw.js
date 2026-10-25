@@ -14,7 +14,7 @@
  *      由 tests/build-version.test.mjs 自动校验。
  */
 
-const BUILD_ID = '2026.10.24-r3';
+const BUILD_ID = '2026.10.25-r4';
 const CACHE_PREFIX = 'mark6-pick3-pick4-';
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 
@@ -29,6 +29,7 @@ const SHELL_FILES = [
   './src/combinatorics.js',
   './src/parser.js',
   './src/strategy.js',
+  './src/dailyfive.js',
   './src/statistics.js',
   './src/storage.js',
   './src/app.js',
@@ -36,8 +37,11 @@ const SHELL_FILES = [
   './data/draws.json'
 ];
 
-/** 底库文件：缓存优先 + 后台更新（体积大，且旧一点不影响正确性） */
-const DATA_FILES = ['/data/draws.js', '/data/draws.json'];
+/**
+ * 底库文件：缓存优先 + 后台更新（体积大，且旧一点不影响正确性）
+ * ⚠ 必须用相对路径：站点若部署在子目录（例如 /repo/），绝对路径 /data/draws.js 会 404。
+ */
+const DATA_FILES = ['./data/draws.js', './data/draws.json'];
 
 /** 把 pathname 归一化：/xxx/index.html 与 /xxx/ 视为同一个入口 */
 function normalizePath(pathname) {
@@ -103,9 +107,12 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
+      // 只清理本工具自己的历史缓存（以 CACHE_PREFIX 开头）。
+      // ⚠ 不能用 includes('mark6') 之类的宽条件：同一个 Pages 源下可能还部署着别的工具，
+      //    误删它们的缓存会让那些页面直接白屏。
       await Promise.all(
         keys
-          .filter((k) => k !== CACHE_NAME && (k.startsWith(CACHE_PREFIX) || k.includes('pick3') || k.includes('mark6')))
+          .filter((k) => k !== CACHE_NAME && k.startsWith(CACHE_PREFIX))
           .map((k) => caches.delete(k))
       );
       await self.clients.claim();
@@ -129,7 +136,8 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       (async () => {
         const keys = await caches.keys();
-        await Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)));
+        // 同样只清理本工具前缀的缓存，绝不碰同域其它工具的数据
+        await Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX)).map((k) => caches.delete(k)));
         const reply = { type: 'CACHES_CLEARED' };
         if (event.source) event.source.postMessage(reply);
       })()

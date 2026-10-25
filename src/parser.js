@@ -22,6 +22,25 @@ export function normalizeDateString(rawDate) {
 }
 
 /**
+ * 严格校验日期：必须是真实存在的 YYYY-MM-DD
+ * 既排除 2026-13-45 这类「格式对但日期不存在」的非法值，
+ * 也把 <img src=x onerror=...> 这类注入载荷挡在外面（不会进入 innerHTML）。
+ * @param {string} value
+ * @returns {boolean}
+ */
+export function isValidISODate(value) {
+  const s = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(`${s}T00:00:00Z`);
+  return Number.isFinite(dt.getTime())
+    && dt.getUTCFullYear() === y
+    && dt.getUTCMonth() + 1 === m
+    && dt.getUTCDate() === d;
+}
+
+/**
  * 规范化单条开奖记录对象
  * @param {object} raw
  * @returns {object|null}
@@ -29,8 +48,10 @@ export function normalizeDateString(rawDate) {
 export function normalizeDrawRecord(raw) {
   if (!raw || typeof raw !== 'object') return null;
 
-  const date = normalizeDateString(raw.date || '');
-  const yearFromDate = date.match(/^(\d{4})/)?.[1];
+  // 日期必须合法：非法日期（2026-13-45）或注入载荷一律丢弃，改用兜底日期
+  const rawDate = normalizeDateString(raw.date || '');
+  const date = isValidISODate(rawDate) ? rawDate : '';
+  const yearFromDate = date ? date.slice(0, 4) : '';
   const year = Number(raw.year || yearFromDate || 2026);
   const periodNum = Number(String(raw.periodNum ?? raw.period ?? '').replace(/\D+/g, ''));
   if (!Number.isInteger(year) || !Number.isInteger(periodNum) || periodNum <= 0) {

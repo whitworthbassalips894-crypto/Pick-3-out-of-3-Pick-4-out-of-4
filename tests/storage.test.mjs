@@ -95,16 +95,66 @@ test('旧版本键名可以迁移到规范键名，且不删除旧数据', () =>
   assert.ok(storage.getItem('mark6_pick3_config') != null);
 });
 
-test('未知键名按关键字兜底识别（老版本自定义键名也能救回来）', () => {
+test('兜底扫描只认带本工具标识（pick3/pk3）的键名', () => {
   const storage = createMemoryStorage({
-    mytool_draws_v0: JSON.stringify([
+    mytool_pick3_draws_v0: JSON.stringify([
       { year: 2026, periodNum: 298, date: '2026-10-25', numbers: [1, 2, 3, 4, 5, 6], special: 7 }
     ])
   });
-  assert.equal(findSourceKey(storage, 'LOCAL_DRAWS'), 'mytool_draws_v0');
+  assert.equal(findSourceKey(storage, 'LOCAL_DRAWS'), 'mytool_pick3_draws_v0');
   const state = loadPersistedState(storage, opts);
   assert.equal(state.localDraws.length, 1);
   assert.equal(state.localDraws[0].id, '2026-298');
+});
+
+test('同域其它工具的键不会被误认成本工具的数据（跨工具污染防护）', () => {
+  const storage = createMemoryStorage({
+    // 同一个 GitHub Pages 源下部署的另一个工具
+    'mark6-lottery-tool-v2_config': JSON.stringify({ stake: 999, odds3: 1, odds4: 2 }),
+    'some-other-app-cache': JSON.stringify({ stake: 888 }),
+    mark6_lottery_config: JSON.stringify({ stake: 777 }),
+    other_tool_draws: JSON.stringify([
+      { year: 2026, periodNum: 298, date: '2026-10-25', numbers: [1, 2, 3, 4, 5, 6], special: 7 }
+    ])
+  });
+
+  // 不应命中任何其它工具的键
+  assert.equal(findSourceKey(storage, 'CONFIG'), null);
+  assert.equal(findSourceKey(storage, 'LOCAL_DRAWS'), null);
+  assert.equal(findSourceKey(storage, 'CUSTOM_PICKS'), null);
+
+  // 读出来的必须是默认值，而不是别的工具的赔率
+  const state = loadPersistedState(storage, opts);
+  assert.equal(state.config.stake, DEFAULT_CONFIG.stake);
+  assert.equal(state.config.odds3, DEFAULT_CONFIG.odds3);
+  assert.deepEqual(state.localDraws, []);
+});
+
+test('形状不匹配的键不会被当成配置（例如数组冒充 config）', () => {
+  const storage = createMemoryStorage({
+    pick3_config: JSON.stringify([1, 2, 3])
+  });
+  assert.equal(findSourceKey(storage, 'CONFIG'), null);
+  const state = loadPersistedState(storage, opts);
+  assert.equal(state.config.stake, DEFAULT_CONFIG.stake);
+});
+
+test('随机注盐值可以持久化与迁移', () => {
+  const storage = createMemoryStorage({
+    [STORAGE_KEYS.RANDOM_SALT]: JSON.stringify(3)
+  });
+  const state = loadPersistedState(storage, opts);
+  assert.equal(state.randomSalt, 3);
+
+  const legacy = createMemoryStorage({
+    mark6_pick3_random_salt: JSON.stringify(7)
+  });
+  const legacyState = loadPersistedState(legacy, opts);
+  assert.equal(legacyState.randomSalt, 7);
+  assert.ok(
+    legacyState.migrations.some((m) => m.includes('mark6_pick3_random_salt') && m.includes(STORAGE_KEYS.RANDOM_SALT)),
+    '旧盐值键应当被迁移到规范键名'
+  );
 });
 
 test('本地开奖记录里的非法号码会被剔除，不影响其它记录', () => {
