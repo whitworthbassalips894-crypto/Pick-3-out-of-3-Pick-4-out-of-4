@@ -185,7 +185,7 @@ export function evaluateDirectTickets(tickets, draw, userConfig = {}) {
  */
 export function evaluateSpecialTickets(tickets, draw, userConfig = {}) {
   const stake = Math.max(0, Number(userConfig.stake ?? DEFAULT_CONFIG.stake));
-  const odds = Math.max(0, Number(userConfig.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial ?? 48));
+  const odds = Math.max(0, Number(userConfig.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial ?? 9.6));
 
   const { normalList, special } = extractDrawNormals(draw);
   const hasSpecial = Number.isInteger(special) && special >= 1 && special <= 49;

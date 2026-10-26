@@ -74,7 +74,7 @@ test('特码基线：P = 5/49 ≈ 10.204%，公平赔率 9.8 倍', () => {
   assert.ok(Math.abs(b.fairOdds - 9.8) < 1e-9);
 });
 
-test('特码期望回报率：48 倍 ⇒ ≈489.8%（如实展示冲突），9.6 倍 ⇒ ≈98%，9.8 倍 ⇒ 100%', () => {
+test('特码期望回报率：默认 9.6 倍 ⇒ ≈98%，9.8 倍 ⇒ 100%，48 倍 ⇒ ≈489.8%（不现实）', () => {
   const ev48 = expectedReturnRate('special', 48);
   assert.ok(Math.abs(ev48 - 48 * (5 / 49)) < 1e-12);
   assert.ok(Math.abs(ev48 - 4.897959183673469) < 1e-9, `实际 ${ev48}`);
@@ -82,6 +82,8 @@ test('特码期望回报率：48 倍 ⇒ ≈489.8%（如实展示冲突），9.6
 
   const ev96 = expectedReturnRate('special', 9.6);
   assert.ok(Math.abs(ev96 - 0.9795918367346939) < 1e-9);
+  // 默认赔率下期望回报率必须低于 100%（不制造“稳赚”的错觉）
+  assert.ok(ev96 < 1, '默认 9.6 倍的期望回报率必须小于 1');
 
   const ev98 = expectedReturnRate('special', 9.8);
   assert.ok(Math.abs(ev98 - 1) < 1e-9, '公平赔率下期望回报率 = 1');

@@ -624,7 +624,7 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
  * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, randomSalt?: number, mode?: string, size?: number }} [options]
  */
 export function buildDailyFiveRecords(allDraws = [], targets = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48, randomSalt = 0 } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 9.6, randomSalt = 0 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
   const records = [];
@@ -661,7 +661,7 @@ export function buildDailyFiveRecords(allDraws = [], targets = [], options = {})
  * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, customNumbers?: number[], mode?: string, size?: number }} [options]
  */
 export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48 } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 9.6 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
   const picks = normalizeNumbers(options.customNumbers || [], { sort: true, maxCount: size });
@@ -707,7 +707,7 @@ export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
  * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, mode?: string, size?: number }} [options]
  */
 export function summarizeDailyFive(records = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48 } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 9.6 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
   const odds = spec.id === 'special' ? oddsSpecial : spec.id === 'pick4' ? odds4 : odds3;
