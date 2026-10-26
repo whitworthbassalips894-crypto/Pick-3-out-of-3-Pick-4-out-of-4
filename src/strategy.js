@@ -114,9 +114,9 @@ export function selectDirectNumbers(scoreMap, features, opts = {}) {
       // 跨注去重
       if (usedElsewhere.has(cand)) dynScore -= 0.9;
 
-      // 均衡注额外按配额再推一把
+      // 均衡注额外按配额再推一把（配额按每注号码数自适应）
       if (quota) {
-        const zoneQuota = { 1: 2, 2: 1, 3: 1 };
+        const zoneQuota = size >= 5 ? { 1: 2, 2: 2, 3: 1 } : { 1: 2, 2: 1, 3: 1 };
         if (zoneCounts[st.zone] < zoneQuota[st.zone]) dynScore += 0.6;
       }
 

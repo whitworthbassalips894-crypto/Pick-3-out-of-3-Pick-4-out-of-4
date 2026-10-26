@@ -4,6 +4,8 @@ import {
   binomial,
   combinations,
   evaluateDirectTickets,
+  evaluateSpecialTickets,
+  evaluateTickets,
   normalizeNumbers
 } from '../src/combinatorics.js';
 
@@ -64,4 +66,43 @@ test('直选：四中四要求 4 个号全部命中，特码永远不计入', ()
   assert.equal(res.payout, 1 * 10 * 7500);
   assert.deepEqual(res.details[1].hitNums, [14, 26, 31]);
   assert.equal(res.details[1].isWin, false);
+});
+
+test('特码：命中 = 开奖的最后一个号码落在这 5 个号里，正码不参与判定', () => {
+  const draw = { numbers: [14, 43, 26, 45, 3, 31], special: 23 };
+  const tickets = [
+    [23, 1, 2, 3, 4],      // 含特码 → 中
+    [23, 5, 6, 7, 8],      // 含特码 → 中
+    [14, 43, 26, 45, 3],   // 全是正码但没有特码 → 不中
+    [1, 2, 3, 4, 5]        // 没有 → 不中
+  ];
+  const res = evaluateSpecialTickets(tickets, draw, { stake: 10, oddsSpecial: 48 });
+  assert.equal(res.totalBets, 4);
+  assert.equal(res.winCount, 2);
+  assert.equal(res.cost, 40);
+  assert.equal(res.payout, 2 * 10 * 48);
+  assert.equal(res.netProfit, 960 - 40);
+  assert.deepEqual(res.details[0].hitNums, [23]);
+  assert.equal(res.details[0].isWin, true);
+  assert.equal(res.details[2].isWin, false);
+  assert.equal(res.details[2].hitCount, 0);
+});
+
+test('evaluateTickets 按 playMode 分发到对应口径', () => {
+  const draw = { numbers: [14, 43, 26, 45, 3, 31], special: 23 };
+  const special = evaluateTickets([[23, 1, 2, 3, 4]], draw, { stake: 10, playMode: 'special', oddsSpecial: 48 });
+  assert.equal(special.winCount, 1);
+  assert.equal(special.payout, 480);
+
+  const pick3 = evaluateTickets([[14, 43, 26]], draw, { stake: 10, playMode: 'pick3', odds3: 650 });
+  assert.equal(pick3.winCount, 1);
+  assert.equal(pick3.payout, 6500);
+
+  const pick4 = evaluateTickets([[14, 43, 26, 45]], draw, { stake: 10, playMode: 'pick4', odds4: 7500 });
+  assert.equal(pick4.winCount, 1);
+  assert.equal(pick4.payout, 75000);
+
+  // 特码玩法下，正码全中但没有特码 → 不中
+  const notSpecial = evaluateTickets([[14, 43, 26, 45, 3]], draw, { stake: 10, playMode: 'special', oddsSpecial: 48 });
+  assert.equal(notSpecial.winCount, 0);
 });

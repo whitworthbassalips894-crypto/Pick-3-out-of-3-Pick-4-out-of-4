@@ -9,7 +9,7 @@
  * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
  * 由 tests/build-version.test.mjs 自动校验三处一致性。
  */
-export const APP_BUILD = '2026.10.26-r6';
+export const APP_BUILD = '2026.10.26-r7';
 
 /** 页面上显示的版本标签 */
 export const APP_VERSION_LABEL = `v${APP_BUILD}`;
@@ -129,7 +129,61 @@ export const DEFAULT_CONFIG = {
   stake: 10, // 默认单注本金 10 元（直选：每注 1 注投注）
   odds3: 650, // 默认三中三赔率 650 倍
   odds4: 7500, // 默认四中四赔率 7500 倍
+  oddsSpecial: 48, // 默认特码赔率 48 倍（1 注 5 个号，命中 = 特码落在这 5 个号里）
   hitRule: 'normal_6_only', // 严格按传统连码规则：仅核对前 6 个正码（平一～平六）
-  targetSize: 3, // 直选玩法：3 = 三中三（每注 3 个号），4 = 四中四（每注 4 个号）
+  playMode: 'special', // 当前玩法：special = 特码（每注 5 个号），pick3 = 三中三，pick4 = 四中四
   remoteSourceUrl: 'https://2026kj.zkclhb.com:2025/am.html'
 };
+
+/**
+ * 玩法定义（顺序 = 页面切换按钮顺序：特码 → 三中三 → 四中四）
+ *
+ *  - special 特码：每注 5 个号码；命中 = 开奖的最后一个号码（特码）落在这 5 个号里，P = 5/49 ≈ 10.204%
+ *  - pick3   三中三：每注 3 个号码；命中 = 3 个号全部落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
+ *  - pick4   四中四：每注 4 个号码；命中 = 4 个号全部落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.0071%
+ */
+export const PLAY_MODES = {
+  special: {
+    id: 'special',
+    name: '特码',
+    title: '特码',
+    size: 5,
+    target: 'special',
+    oddsKey: 'oddsSpecial',
+    hitRule: '开奖的最后一个号码（特码）落在这 5 个号码里即算命中'
+  },
+  pick3: {
+    id: 'pick3',
+    name: '选三',
+    title: '三中三',
+    size: 3,
+    target: 'normals',
+    oddsKey: 'odds3',
+    hitRule: '这 3 个号码全部落在 6 个正码里才算命中'
+  },
+  pick4: {
+    id: 'pick4',
+    name: '选四',
+    title: '四中四',
+    size: 4,
+    target: 'normals',
+    oddsKey: 'odds4',
+    hitRule: '这 4 个号码全部落在 6 个正码里才算命中'
+  }
+};
+
+/** 玩法显示顺序（页面切换按钮按这个顺序排） */
+export const PLAY_MODE_ORDER = ['special', 'pick3', 'pick4'];
+
+/** 默认玩法 */
+export const DEFAULT_PLAY_MODE = 'special';
+
+/**
+ * 取玩法定义（非法值回落到默认玩法）
+ * @param {string} mode
+ * @returns {object} PLAY_MODES 里的一项
+ */
+export function getPlayMode(mode) {
+  const key = String(mode || '').trim();
+  return PLAY_MODES[key] || PLAY_MODES[DEFAULT_PLAY_MODE];
+}

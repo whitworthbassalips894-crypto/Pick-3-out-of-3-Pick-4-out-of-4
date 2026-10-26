@@ -4,6 +4,9 @@
  *
  * 直选口径：一张注单 = size 个号码（3 = 三中三，4 = 四中四），
  * 这 size 个号码**全部**落在 6 个正码里才算命中，返奖 = 本金 × 赔率。
+ *
+ * 特码口径：一张注单 = 5 个号码，开奖的**最后一个号码（特码）**落在这 5 个号码里就算命中，
+ * 返奖 = 本金 × 特码赔率；6 个正码不参与特码玩法的判定。
  */
 
 import { DEFAULT_CONFIG } from './constants.js';
@@ -168,4 +171,81 @@ export function evaluateDirectTickets(tickets, draw, userConfig = {}) {
     details,
     winningTickets
   };
+}
+
+/**
+ * 核对一组「特码」注单（每注 5 个号码）
+ *
+ * 命中规则：开奖的最后一个号码（特码）落在这 5 个号码里即算命中；
+ * 6 个正码不参与判定，特码也不计入正码命中。
+ *
+ * @param {Array<Array<number|string>>} tickets 每注 5 个号码
+ * @param {{ numbers?: number[], special?: number } | null} draw 开奖结果
+ * @param {{ stake?: number, oddsSpecial?: number, targetSize?: number }} [userConfig]
+ */
+export function evaluateSpecialTickets(tickets, draw, userConfig = {}) {
+  const stake = Math.max(0, Number(userConfig.stake ?? DEFAULT_CONFIG.stake));
+  const odds = Math.max(0, Number(userConfig.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial ?? 48));
+
+  const { normalList, special } = extractDrawNormals(draw);
+  const hasSpecial = Number.isInteger(special) && special >= 1 && special <= 49;
+
+  const normalizedTickets = (Array.isArray(tickets) ? tickets : [])
+    .map((t) => normalizeNumbers(t, { sort: true }))
+    .filter((t) => t.length === 5);
+
+  const details = normalizedTickets.map((nums, idx) => {
+    const hit = hasSpecial && nums.includes(special);
+    return {
+      index: idx + 1,
+      nums,
+      hitNums: hit ? [special] : [],
+      hitCount: hit ? 1 : 0,
+      isWin: hit,
+      payout: hit ? stake * odds : 0
+    };
+  });
+
+  const winningTickets = details.filter((d) => d.isWin);
+  const totalBets = details.length;
+  const winCount = winningTickets.length;
+  const cost = totalBets * stake;
+  const payout = hasSpecial ? winCount * stake * odds : 0;
+  const netProfit = hasSpecial ? payout - cost : 0;
+  const roi = hasSpecial && cost > 0 ? Number(((netProfit / cost) * 100).toFixed(2)) : 0;
+
+  return {
+    targetSize: 5,
+    playMode: 'special',
+    hasDraw: hasSpecial,
+    hasSpecial,
+    normalList,
+    special,
+    totalBets,
+    winCount,
+    cost,
+    payout,
+    netProfit,
+    roi,
+    stake,
+    odds,
+    details,
+    winningTickets
+  };
+}
+
+/**
+ * 按玩法分发的注单核对
+ *
+ *  - playMode = 'special' → 特码口径（5 个号里含开奖特码即中）
+ *  - 其余（pick3 / pick4）→ 直选口径（号码全部落在 6 个正码里）
+ *
+ * @param {Array<Array<number|string>>} tickets
+ * @param {object|null} draw
+ * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, playMode?: string, targetSize?: number }} [userConfig]
+ */
+export function evaluateTickets(tickets, draw, userConfig = {}) {
+  const mode = String(userConfig.playMode || '').trim();
+  if (mode === 'special') return evaluateSpecialTickets(tickets, draw, userConfig);
+  return evaluateDirectTickets(tickets, draw, userConfig);
 }
