@@ -23,7 +23,6 @@ import {
   generateDailyFive,
   omissionPercentile,
   randomExpectedHits,
-  reboundStrength,
   summarizeDailyFive
 } from '../src/dailyfive.js';
 import { getPriorDraws } from '../src/strategy.js';
@@ -78,12 +77,19 @@ test('默认玩法 = 特码（每注 5 个号）', () => {
   assert.ok(plan.five.every((e) => e.numbers.length === 5));
 });
 
-test('特码玩法的 4 注精选用的是特码自己的历史（名称与说明随之切换）', () => {
-  const plan = generateDailyFive(ALL, TARGET, { mode: 'special' });
-  const names = plan.five.slice(1).map((e) => e.name);
-  assert.deepEqual(names, ['特码热势', '特码遗漏回补', '特码尾数共振', '特码三区均衡']);
+test('5 注固定为：完全随机 / 热号 / 冷号 / 形态均衡 / 补位覆盖（三种玩法一致）', () => {
+  for (const mode of ['special', 'pick3', 'pick4']) {
+    const plan = generateDailyFive(ALL, TARGET, { mode });
+    assert.deepEqual(plan.five.map((e) => e.id), ['random', 'hot', 'cold', 'shape', 'cover']);
+    assert.deepEqual(plan.five.map((e) => e.code), ['#1', '#2', '#3', '#4', '#5']);
+    assert.deepEqual(plan.five.map((e) => e.name), ['完全随机', '热号', '冷号', '形态均衡', '补位覆盖']);
+    assert.equal(plan.five.filter((e) => e.random).length, 1);
+  }
+  // 特码玩法的说明换成「特码口径」
+  const special = generateDailyFive(ALL, TARGET, { mode: 'special' });
+  assert.ok(special.five[1].rationale.includes('特码'), '特码玩法的热号说明应基于特码历史');
   const pick3 = generateDailyFive(ALL, TARGET, { mode: 'pick3' });
-  assert.deepEqual(pick3.five.slice(1).map((e) => e.name), ['热势恒强', '遗漏回补', '关联共振', '三区波色均衡']);
+  assert.ok(!pick3.five[1].rationale.includes('特码'), '正码玩法不该出现特码口径的说明');
 });
 
 test('特码玩法的 4 注精选要照顾三区分布（每区最多 2 个号；随机注不设限）', () => {
@@ -98,57 +104,50 @@ test('特码玩法的 4 注精选要照顾三区分布（每区最多 2 个号�
   }
 });
 
-test('特码玩法杀上期特码：5 注（含随机注）都不含上期特码，且重摇后依然不含', () => {
-  for (const target of ALL.slice(1, 31).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
-    const prior = getPriorDraws(ALL, target);
-    const lastSpecial = prior[0].special;
-    assert.ok(Number.isInteger(lastSpecial) && lastSpecial >= 1 && lastSpecial <= 49);
-
-    for (const randomSalt of [0, 1, 2, 7]) {
-      const plan = generateDailyFive(ALL, target, { mode: 'special', randomSalt });
-      assert.deepEqual(plan.killedNumbers, [lastSpecial], '杀号信息应记录上期特码');
-      assert.equal(plan.lastSpecial, lastSpecial);
+test('5 注互不重叠：并集正好是 5 × size 个不同号码（这才是唯一能改善的地方）', () => {
+  for (const target of ALL.slice(1, 41).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
+    for (const mode of ['special', 'pick3', 'pick4']) {
+      const plan = generateDailyFive(ALL, target, { mode });
+      const all = plan.five.flatMap((e) => e.numbers);
+      assert.equal(new Set(all).size, all.length, `${mode} 的 5 注出现了重复号码`);
+      assert.equal(plan.coverage.distinct, plan.size * 5);
       for (const e of plan.five) {
-        assert.ok(!e.numbers.includes(lastSpecial), `${target.periodNum} 期 ${e.code} ${e.name} 含上期特码 ${lastSpecial}`);
-        assert.deepEqual(e.killed, [lastSpecial]);
-        assert.ok(e.rationale.includes('杀上期特码'), '说明里要写清已杀上期特码');
-        assert.equal(e.numbers.length, 5);
+        assert.equal(e.numbers.length, plan.size);
+        assert.equal(new Set(e.numbers).size, plan.size);
       }
-      // 随机注仍在 48 个号里机选，只是不含上期特码
-      assert.equal(new Set(plan.five[0].numbers).size, 5);
+      // 不再有「杀号」这类伪优化
+      assert.deepEqual(plan.killedNumbers, []);
+      for (const e of plan.five) assert.deepEqual(e.killed, []);
+      // 5 注互不重叠 → 没有共识号
+      assert.deepEqual(plan.consensus, []);
     }
   }
 });
 
-test('特码玩法可以关掉杀号（excludeLastSpecial: false）', () => {
-  const plan = generateDailyFive(ALL, TARGET, { mode: 'special', excludeLastSpecial: false });
-  assert.deepEqual(plan.killedNumbers, []);
-  for (const e of plan.five) assert.deepEqual(e.killed, []);
-});
-
-test('正码玩法（三中三 / 四中四）不杀号：上期特码不是命中对象', () => {
-  for (const mode of ['pick3', 'pick4']) {
-    const plan = generateDailyFive(ALL, TARGET, { mode });
-    assert.deepEqual(plan.killedNumbers, []);
-    assert.equal(plan.lastSpecial, null);
-    for (const e of plan.five) assert.deepEqual(e.killed, []);
+test('随机注只从 4 注精选未用的号里机选，重摇也只影响随机注', () => {
+  const plan = generateDailyFive(ALL, TARGET, { mode: 'special' });
+  const picked = new Set(plan.five.slice(1).flatMap((e) => e.numbers));
+  for (const n of plan.five[0].numbers) {
+    assert.ok(!picked.has(n), `随机注不该用到精选已覆盖的 ${n}`);
+  }
+  const rerolled = generateDailyFive(ALL, TARGET, { mode: 'special', randomSalt: 3 });
+  for (let i = 1; i < 5; i++) {
+    assert.deepEqual(plan.five[i].numbers, rerolled.five[i].numbers, '重摇不该影响精选');
   }
 });
 
-test('4 注精选里同一个号码最多进 2 注（跨注重复硬上限）', () => {
-  for (const target of ALL.slice(1, 61).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
-    const plan = generateDailyFive(ALL, target, { mode: 'special' });
-    const counts = new Map();
-    for (const e of plan.five.slice(1)) for (const n of e.numbers) counts.set(n, (counts.get(n) || 0) + 1);
-    for (const [n, c] of counts) {
-      assert.ok(c <= 2, `${target.periodNum} 期号码 ${n} 出现在 ${c} 注精选里`);
-    }
-    // 共识号仍然是「≥2 注精选同选」，不会被这条规则吃掉
-    const expected = [...counts.entries()].filter(([, c]) => c >= 2).map(([n]) => n).sort((a, b) => a - b);
-    assert.deepEqual([...plan.consensus].sort((a, b) => a - b), expected);
-    // 5 注合起来覆盖面应该比 4 注「无脑重复」更宽
-    assert.ok(new Set(plan.five.flatMap((e) => e.numbers)).size >= 15);
-  }
+test('5 注合计命中概率：特码 25/49，直选 ≈ 5 × 单注组合概率', () => {
+  const special = generateDailyFive(ALL, TARGET, { mode: 'special' });
+  assert.ok(Math.abs(special.coverage.perTicket - 5 / 49) < 1e-12);
+  assert.ok(Math.abs(special.coverage.anyHit - 25 / 49) < 1e-12, '25 个不同号覆盖 1 个特码 = 25/49');
+
+  const pick3 = generateDailyFive(ALL, TARGET, { mode: 'pick3' });
+  assert.ok(Math.abs(pick3.coverage.perTicket - 20 / 18424) < 1e-12, 'C(6,3)/C(49,3)');
+  assert.ok(Math.abs(pick3.coverage.anyHit - (5 * 20) / 18424) < 1e-12);
+
+  const pick4 = generateDailyFive(ALL, TARGET, { mode: 'pick4' });
+  assert.ok(Math.abs(pick4.coverage.perTicket - 15 / 211876) < 1e-12, 'C(6,4)/C(49,4)');
+  assert.ok(Math.abs(pick4.coverage.anyHit - (5 * 15) / 211876) < 1e-12);
 });
 
 test('同一期 + 同一盐值 → 完全可复现（确定性）', () => {
@@ -169,18 +168,12 @@ test('重摇随机注只改变 #1，四注精选保持不变', () => {
   assert.notDeepEqual(rerolled.five[0].numbers, rerolled2.five[0].numbers);
 });
 
-test('共识号 = 至少 2 注精选同时选中的号码（不含随机注）', () => {
+test('5 注互不重叠 → 不存在共识号（旧版「≥2 注同选」的共识逻辑已由覆盖面取代）', () => {
   const plan = generateDailyFive(ALL, TARGET);
+  assert.deepEqual(plan.consensus, []);
   const counts = new Map();
-  for (const e of plan.five.slice(1)) {
-    for (const n of e.numbers) counts.set(n, (counts.get(n) || 0) + 1);
-  }
-  const expected = [...counts.entries()].filter(([, c]) => c >= 2).map(([n]) => n).sort((a, b) => a - b);
-  assert.deepEqual([...plan.consensus].sort((a, b) => a - b), expected);
-  for (const n of plan.consensus) {
-    const hitCount = plan.five.slice(1).filter((e) => e.numbers.includes(n)).length;
-    assert.ok(hitCount >= 2);
-  }
+  for (const e of plan.five) for (const n of e.numbers) counts.set(n, (counts.get(n) || 0) + 1);
+  assert.ok([...counts.values()].every((c) => c === 1));
 });
 
 test('computeDailyFiveFeatures 的频率表与遗漏表都不越界', () => {
@@ -236,16 +229,20 @@ test('buildDailyFiveRecords 逐期回放：直选命中 = 号码全部落在前 
 
 test('buildDailyFiveRecords 特码口径：命中 = 开奖特码落在这 5 个号里', () => {
   const target = pick('2026-287'); // 特码 08
-  const rec = buildDailyFiveRecords(ALL, [target], { mode: 'special' })[0];
+  const rec = buildDailyFiveRecords(ALL, [target], { mode: 'special', oddsSpecial: 48 })[0];
   assert.equal(rec.five.length, 5);
+  let wins = 0;
   for (const e of rec.five) {
     const covers = e.numbers.includes(8);
+    if (covers) wins++;
     assert.equal(e.isWin, covers);
     assert.equal(e.hitCount, covers ? 1 : 0);
     assert.equal(e.payout, covers ? 10 * 48 : 0);
     // 正码命中个数不参与特码判定
     assert.ok(e.matchedNormalCount <= 1);
   }
+  // 5 注互不重叠覆盖 25 个号，特码 08 最多只可能在 1 注里
+  assert.equal(wins, rec.five.filter((e) => e.numbers.includes(8)).length);
 });
 
 test('无未来函数：把未来开奖全部改掉，T 期推荐不变', () => {
@@ -424,16 +421,6 @@ test('遗漏分位分布要接近均匀（不能集中在 0 或 1）', () => {
     }
   }
   for (const b of buckets) assert.ok(b / total > 0.02, `分位分布过于集中：${buckets.join(',')}`);
-});
-
-test('reboundStrength：80%~98% 递增，超过 98% 不再继续加码', () => {
-  assert.ok(reboundStrength(0) === 0);
-  assert.ok(reboundStrength(0.4) < reboundStrength(0.8));
-  assert.ok(reboundStrength(0.8) < reboundStrength(0.9));
-  assert.ok(reboundStrength(0.9) < reboundStrength(0.97));
-  assert.equal(reboundStrength(0.99), 1.2, '极端长空不该拿最高分');
-  assert.equal(reboundStrength(1), 1.2);
-  assert.ok(reboundStrength(0.97) > reboundStrength(1));
 });
 
 test('cleanNumbers：去重 + 过滤非法号码 + 只取前 limit 个', () => {
