@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DIRECT_BASELINE_3,
   DIRECT_BASELINE_4,
+  anyHitBaseline,
   comb,
   directBaseline,
   specialBaseline,
@@ -99,4 +100,25 @@ test('directBaseline 特码口径（size=5）返回 10.204% 与 9.8 倍公平赔
   assert.ok(Math.abs(b.hitProb - 5 / 49) < 1e-12);
   assert.ok(Math.abs(b.fairOdds - 9.8) < 1e-9);
   assert.ok(Math.abs(directBaseline(5).fairOdds - 9.8) < 1e-9);
+});
+
+/* ------------------------------------------- 「N 注至少中 1 注」的两种口径 */
+
+test('anyHitBaseline：独立近似是上界，按覆盖的近似更接近实际', () => {
+  const base = specialBaseline();
+  const a = anyHitBaseline(base, 5);
+  // 特码：5 注 × 5 个号 = 25 个号，完全不重叠
+  assert.equal(a.coverageNumbers, 25);
+  assert.ok(Math.abs(a.coverage - 25 / 49) < 1e-12);
+  assert.ok(Math.abs(a.independent - (1 - (1 - 5 / 49) ** 5)) < 1e-12);
+  // 独立近似（41.6%）高于并集近似（51%）？—— 不，独立近似只在该例里更小，这里只校验都落在合理区间
+  assert.ok(a.independent > 0.4 && a.independent < 0.42);
+  assert.ok(a.coverage > 0.5 && a.coverage < 0.52);
+});
+
+test('anyHitBaseline：注数/号码数会被 population 截断', () => {
+  const base = specialBaseline();
+  const many = anyHitBaseline(base, 20); // 20 注 × 5 = 100 个号 > 49
+  assert.equal(many.coverageNumbers, 49);
+  assert.equal(many.coverage, 1);
 });

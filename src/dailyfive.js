@@ -17,6 +17,7 @@
  */
 
 import { ALL_NUMBERS, PLAY_MODES, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
+import { isUsableDraw } from './audit.js';
 import { evaluateTickets, normalizeNumbers } from './combinatorics.js';
 import { getPriorDraws, selectDirectNumbers } from './strategy.js';
 
@@ -176,26 +177,103 @@ function shuffledNumbers(rng, count, excluded = []) {
 /* -------------------------------------------------------------- 特征计算 */
 
 /**
+ * 把一期开奖的号码列表清洗成「合法且不重复」的号码（升序无关）
+ *
+ * 历史上传数据里出现过「同一行 6 个正码里有重复号」的坏行（如 2022-132 期的 33 出现两次），
+ * 如果不去重，这类行会让同一个号在一次开奖里被记两次频率，污染全部统计。
+ * @param {Array<number|string>} rawNumbers
+ * @param {number} [limit=6]
+ * @returns {number[]}
+ */
+export function cleanNumbers(rawNumbers = [], limit = 6) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(rawNumbers) ? rawNumbers : []) {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 49 || seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * 从「最新在前」的出现矩阵里算遗漏信息（无未来函数）
+ *
+ * 约定：matrix[i][n] = 1 表示号码 n 在第 i 期出现，**i = 0 是最新一期**。
+ *
+ * 历史 bug 说明（2026-10-26 修复）：
+ *   旧实现 `gapHistory[n].push(lastSeenIndex[n] - i - 1)` 因为遍历方向是「新 → 旧」，
+ *   结果恒为负数；并且 `lastSeenIndex[n]` 每一轮都被覆盖成**更老**的期号，
+ *   循环结束后拿到的是「窗口内最老的一次出现」，导致 omission 全部偏大、
+ *   omissionPct 恒为 1、isShortRest 恒为 false。
+ *
+ * @param {Array<ArrayLike<number>>} matrix 最新在前的出现矩阵
+ * @param {number} window 窗口期数（用于「窗口内没出现过」的兜底值）
+ * @returns {{ omission: number[], gapHistory: number[][], lastSeen: number[] }}
+ *   omission[n]：已连续多少期没有出现（0 = 最近一期刚出现；窗口内没出现 = window）
+ *   gapHistory[n]：该号历史上两次出现之间「隔了几期」（都是 >= 0 的整数）
+ *   lastSeen[n]：最近一次出现距最新一期的期数（-1 = 窗口内没出现过）
+ */
+export function buildOmissionSeries(matrix = [], window = matrix.length) {
+  const size = Math.max(1, Math.trunc(Number(window) || 0));
+  // lastSeen[n]：最近一次出现的下标（i 从 0 = 最新一期开始递增，所以第一次遇到就是最近的）
+  const lastSeen = new Array(50).fill(-1);
+  // prevSeen[n]：遍历到当前位置时，上一个（更新的）出现位置，用于算间距
+  const prevSeen = new Array(50).fill(-1);
+  const gapHistory = Array.from({ length: 50 }, () => []);
+  for (let i = 0; i < matrix.length; i++) {
+    const row = matrix[i] || [];
+    for (let n = 1; n <= 49; n++) {
+      if (!row[n]) continue;
+      if (lastSeen[n] < 0) lastSeen[n] = i;                    // 只记最近一次，不能被更老的期号覆盖
+      if (prevSeen[n] >= 0) gapHistory[n].push(i - prevSeen[n] - 1); // 间距 = 两次出现之间隔了几期（>=0）
+      prevSeen[n] = i;
+    }
+  }
+  const omission = new Array(50).fill(size);
+  for (let n = 1; n <= 49; n++) {
+    omission[n] = lastSeen[n] >= 0 ? lastSeen[n] : size;
+  }
+  return { omission, gapHistory, lastSeen };
+}
+
+/**
+ * 遗漏分位：当前遗漏在这个号自身的间距分布里排第几（0~1）
+ * @param {number[]} gaps 该号的历史间距序列
+ * @param {number} cur 当前遗漏
+ * @returns {number}
+ */
+export function omissionPercentile(gaps = [], cur = 0) {
+  if (!Array.isArray(gaps) || gaps.length === 0) return 1;
+  const le = gaps.filter((g) => g <= cur).length;
+  return le / gaps.length;
+}
+
+/**
  * 计算 01~49 每个号码的历史特征（全部来自 priorDraws，无未来函数）
  * @param {object[]} priorDraws 严格早于目标期的开奖记录（降序，最新在前）
  * @param {{ date?: string|number, year?: number }} [targetMeta]
  */
 export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
-  const w180 = priorDraws.slice(0, 180);
-  const w60 = priorDraws.slice(0, 60);
-  const w30 = priorDraws.slice(0, 30);
-  const w15 = priorDraws.slice(0, 15);
-  const w25 = priorDraws.slice(0, 25);
+  // 坏行隔离：正码重复 / 越界 / 特码与正码重叠的期次不参与统计（见 src/audit.js）。
+  // 不猜测补全，宁可少一期也不能让一次开奖被算成两个号。
+  const usablePrior = priorDraws.filter(isUsableDraw);
+  const w180 = usablePrior.slice(0, 180);
+  const w60 = usablePrior.slice(0, 60);
+  const w30 = usablePrior.slice(0, 30);
+  const w15 = usablePrior.slice(0, 15);
+  const w25 = usablePrior.slice(0, 25);
   const dateOrYear = targetMeta.date || targetMeta.year || priorDraws[0]?.date || 2026;
 
   const freq = { 15: new Array(50).fill(0), 30: new Array(50).fill(0), 60: new Array(50).fill(0), 180: new Array(50).fill(0) };
   const hitMatrix = []; // hitMatrix[i][n]：第 i 期（倒序，最新在前）n 是否为正码
   for (let i = 0; i < w180.length; i++) {
-    const normals = Array.isArray(w180[i]?.numbers) ? w180[i].numbers.slice(0, 6) : [];
+    // cleanNumbers 去重：防止坏行（同号重复）把一次开奖算成两次
+    const normals = cleanNumbers(w180[i]?.numbers, 6);
     const row = new Array(50).fill(0);
-    for (const raw of normals) {
-      const n = Number(raw);
-      if (!Number.isInteger(n) || n < 1 || n > 49) continue;
+    for (const n of normals) {
       row[n] = 1;
       freq[180][n]++;
       if (i < 60) freq[60][n]++;
@@ -206,21 +284,9 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   }
 
   // 遗漏：当前间隔 + 该号自身历史间隔序列（用于分位数）
-  const omission = new Array(50).fill(w60.length);
-  const gapHistory = Array.from({ length: 50 }, () => []);
-  const lastSeenIndex = new Array(50).fill(-1);
-  for (let i = 0; i < w60.length; i++) {
-    const row = hitMatrix[i];
-    for (let n = 1; n <= 49; n++) {
-      if (!row[n]) continue;
-      if (lastSeenIndex[n] >= 0) gapHistory[n].push(lastSeenIndex[n] - i - 1);
-      lastSeenIndex[n] = i;
-    }
-  }
-  // hitMatrix[0] 是最近一期：出现位置即为「已遗漏几期」；未出现则记满窗口长度
-  for (let n = 1; n <= 49; n++) {
-    omission[n] = lastSeenIndex[n] >= 0 ? lastSeenIndex[n] : w60.length;
-  }
+  // 用整个 180 期窗口算间距（每个号平均出现 ~22 次，间距样本足够做分位），
+  // 而不是只用 60 期（样本太少会让分位只有 0 / 1 两个取值）。
+  const { omission, gapHistory } = buildOmissionSeries(hitMatrix, w180.length);
 
   // EMA：对「是否出现」序列做指数平滑（从旧到新）
   const ema = (span) => {
@@ -241,8 +307,7 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   const lift = new Array(50).fill(1);
   const bothCount = new Array(50).fill(0);
   const prevCount = new Array(50).fill(0);
-  const normalsOf = (i) => Array.from(new Set((w180[i]?.numbers || []).slice(0, 6).map(Number)))
-    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 49);
+  const normalsOf = (i) => cleanNumbers(w180[i]?.numbers, 6);
   for (let i = 0; i < w180.length - 1; i++) {
     const cur = hitMatrix[i];
     const prevRow = hitMatrix[i + 1]; // i+1 更早一期
@@ -259,8 +324,7 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   // 共现矩阵（近 60 期同期共现）
   const pairCount = Array.from({ length: 50 }, () => new Uint16Array(50));
   for (let i = 0; i < w60.length; i++) {
-    const uniq = Array.from(new Set((w60[i]?.numbers || []).slice(0, 6).map(Number)))
-      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 49);
+    const uniq = cleanNumbers(w60[i]?.numbers, 6);
     for (let a = 0; a < uniq.length; a++) {
       for (let b = a + 1; b < uniq.length; b++) {
         pairCount[uniq[a]][uniq[b]]++;
@@ -273,8 +337,7 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   const tailFreq = new Array(10).fill(0);
   const zodiacFreq = {};
   for (let i = 0; i < w25.length; i++) {
-    const uniq = Array.from(new Set((w25[i]?.numbers || []).slice(0, 6).map(Number)))
-      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 49);
+    const uniq = cleanNumbers(w25[i]?.numbers, 6);
     for (const n of uniq) {
       tailFreq[n % 10]++;
       const z = getZodiacForNumber(n, dateOrYear);
@@ -283,7 +346,7 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   }
 
   // 上期正码与斜连邻码
-  const lastNormals = new Set((priorDraws[0]?.numbers || []).slice(0, 6).map(Number));
+  const lastNormals = new Set(cleanNumbers(usablePrior[0]?.numbers, 6));
   const neighborSet = new Set();
   for (const n of lastNormals) {
     if (n > 1) neighborSet.add(n - 1);
@@ -291,7 +354,7 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   }
   const recent3 = new Set();
   for (let i = 0; i < Math.min(3, w60.length); i++) {
-    for (const n of (w60[i]?.numbers || []).slice(0, 6)) recent3.add(Number(n));
+    for (const n of cleanNumbers(w60[i]?.numbers, 6)) recent3.add(n);
   }
 
   const maxTail = Math.max(1, ...tailFreq);
@@ -302,11 +365,7 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
     const gaps = gapHistory[n];
     const cur = omission[n];
     // 遗漏分位数：当前间隔在该号自身历史间隔分布中的位置（0~1）
-    let pct = 1;
-    if (gaps.length > 0) {
-      const le = gaps.filter((g) => g <= cur).length;
-      pct = le / gaps.length;
-    }
+    const pct = omissionPercentile(gaps, cur);
     const color = getColorForNumber(n);
     const zodiac = getZodiacForNumber(n, dateOrYear);
     stats[n] = {
@@ -341,12 +400,22 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   // 特码玩法的命中对象是特码，所以打分必须用特码自己的历史，而不是 6 个正码的历史。
   // ————————————————————————————————————————————————————————————
   const specialFreq = { 15: new Array(50).fill(0), 30: new Array(50).fill(0), 60: new Array(50).fill(0), 180: new Array(50).fill(0) };
-  const specialGapHistory = Array.from({ length: 50 }, () => []);
-  const lastSpecialIndex = new Array(50).fill(-1);
   const specialOf = (d) => {
     const s = Number(d?.special);
     return Number.isInteger(s) && s >= 1 && s <= 49 ? s : null;
   };
+  // 特码出现矩阵：matrix[i][n] = 1 表示第 i 期（最新在前）的特码是 n
+  // 特码每期只开出 1 个，若只看 60 期，每个号平均只有 1 次出现 → 间距样本 1 个，
+  // 分位会退化成 0 / 1。这里放宽到 400 期，让每个号有 ~8 次出现、7 个间距样本。
+  const specialGapWindow = Math.min(priorDraws.length, 400);
+  const specialMatrix = [];
+  for (let i = 0; i < priorDraws.length && specialMatrix.length < specialGapWindow; i++) {
+    const s = specialOf(priorDraws[i]);
+    if (s == null) continue; // 特码缺失的坏行直接跳过，不制造虚假的空档
+    const row = new Array(50).fill(0);
+    row[s] = 1;
+    specialMatrix.push(row);
+  }
   for (let i = 0; i < w180.length; i++) {
     const s = specialOf(w180[i]);
     if (s == null) continue;
@@ -354,9 +423,8 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
     if (i < 60) specialFreq[60][s]++;
     if (i < 30) specialFreq[30][s]++;
     if (i < 15) specialFreq[15][s]++;
-    if (lastSpecialIndex[s] >= 0) specialGapHistory[s].push(lastSpecialIndex[s] - i - 1);
-    lastSpecialIndex[s] = i;
   }
+  const { omission: specialOmission, gapHistory: specialGapHistory } = buildOmissionSeries(specialMatrix, specialMatrix.length || 1);
   const specialTailFreq = new Array(10).fill(0);
   for (let i = 0; i < w60.length; i++) {
     const s = specialOf(w60[i]);
@@ -374,12 +442,8 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
   const specialStats = {};
   for (let n = 1; n <= 49; n++) {
     const gaps = specialGapHistory[n];
-    const cur = lastSpecialIndex[n] >= 0 ? lastSpecialIndex[n] : w60.length;
-    let pct = 1;
-    if (gaps.length > 0) {
-      const le = gaps.filter((g) => g <= cur).length;
-      pct = le / gaps.length;
-    }
+    const cur = specialOmission[n];
+    const pct = omissionPercentile(gaps, cur);
     specialStats[n] = {
       num: n,
       color: getColorForNumber(n),
@@ -414,6 +478,25 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
 
 /* ------------------------------------------------------------ 评分与选号 */
 
+/**
+ * 遗漏回补曲线：把「遗漏分位」映射成回补强度（0 ~ 3）
+ *
+ * 设计原则（修复遗漏 bug 后重新校准）：
+ *   1. 0.80~0.98 是所谓「饱和度临界区」，给 1.0 → 3.0 的递增；
+ *   2. 超过 0.98 的极端长空**不再继续加分**（打回 1.2）。独立开奖下
+ *      「空得越久越该回补」并不成立（下一期命中概率恒为 5/49），
+ *      这里的分数只是选号风格，不能把冷号包装成「更该出」；
+ *   3. 0.8 以下线性递减，避免回补注变成「专挑刚开过的号」。
+ * @param {number} pct 遗漏分位 0~1
+ * @returns {number}
+ */
+export function reboundStrength(pct = 0) {
+  const p = Number.isFinite(pct) ? Math.min(1, Math.max(0, pct)) : 0;
+  if (p >= 0.98) return 1.2;
+  if (p >= 0.8) return 1.0 + (2.0 * (p - 0.8)) / 0.18;
+  return 0.9 * (p / 0.8);
+}
+
 /** 生成 4 注精选的打分表 */
 function buildScoreMaps(features, year, periodNum) {
   const { stats } = features;
@@ -434,14 +517,13 @@ function buildScoreMaps(features, year, periodNum) {
       0.8 * st.tailNorm +
       j2 * 1.3;
 
-    // #3 遗漏回补：80%–98% 临界区 + 热码短休窗
-    const pct = st.omissionPct;
-    const rebound = pct >= 0.8 ? 1.6 + 2.2 * ((pct - 0.8) / 0.2) : 0.9 * pct;
+    // #3 遗漏回补：80%–98% 饱和度临界区为主信号 + 短休回补窗 + 长期频率微调
+    // 抖动权重必须小于信号权重（0.5 vs 1.5），否则这一注会退化成「随机票」
     maps.omission_rebound[n] =
-      1.6 * rebound +
-      (st.isShortRest ? 1.4 : 0) +
-      0.5 * (st.freq180 / 180) * 6 +
-      j3 * 1.4;
+      1.5 * reboundStrength(st.omissionPct) +
+      (st.isShortRest ? 1.0 : 0) +
+      0.35 * (st.freq180 / 180) * 6 +
+      j3 * 0.5;
 
     // #4 关联共振：条件转移升幅 + 尾数族群
     maps.transition_cooccur[n] =
@@ -489,14 +571,12 @@ function buildSpecialScoreMaps(features, year, periodNum) {
       0.6 * st.tailNorm +
       j2 * 1.3;
 
-    // #3 特码遗漏回补：该号作为特码的遗漏分位落在 80%–98% 临界区
-    const pct = st.omissionPct;
-    const rebound = pct >= 0.8 ? 1.6 + 2.2 * ((pct - 0.8) / 0.2) : 0.9 * pct;
+    // #3 特码遗漏回补：该号「作为特码」的遗漏分位落在 80%–98% 临界区为主信号
     maps.omission_rebound[n] =
-      1.6 * rebound +
-      (st.isShortRest ? 1.2 : 0) +
-      0.5 * rel180 +
-      j3 * 1.4;
+      1.5 * reboundStrength(st.omissionPct) +
+      (st.isShortRest ? 1.0 : 0) +
+      0.3 * rel180 +
+      j3 * 0.5;
 
     // #4 特码尾数共振：近 60 期特码尾数族群 + 上期特码尾数 + 长期频率
     maps.transition_cooccur[n] =

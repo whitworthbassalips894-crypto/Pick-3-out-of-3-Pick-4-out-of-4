@@ -8,21 +8,21 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="六合彩「三中三 / 四中四」直选每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选 3 / 4 码直选、开奖核对、逐期历史回放（明确标注命中与返奖）、数据同步（只追加不覆盖本机数据）" />
   <title>六合彩 直选 · 三中三 / 四中四</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r9" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r9" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r9" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r9" />
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r10" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r10" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r10" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r10" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.26-r9" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r10" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
             六合彩 · 三中三 / 四中四 直选
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r9</span>
+            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r10</span>
           </div>
           <div class="brand-subtitle" id="latestLine">仅核对前 6 个正码，特码不计入</div>
         </div>
@@ -267,6 +267,11 @@
       <div class="card">
         <div class="sync-grid" id="syncGrid"></div>
 
+        <div class="sync-block">
+          <div class="sync-block-head">底库体检（正码是否 6 个互不重复 / 期号日期是否连续）</div>
+          <p class="audit-line" id="auditLine">体检中…</p>
+        </div>
+
         <div class="sync-actions">
           <button type="button" class="btn btn-sm" id="btnSyncCheck">👁 仅检查（不写入）</button>
           <button type="button" class="btn btn-sm btn-primary" id="btnSyncNow">🔄 一键同步</button>
@@ -333,7 +338,7 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r9</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r10</p>
           <p class="hint-line">
             「修复缓存」只清理<b>本工具</b>的 Cache Storage（标记 <code>mark6-pick3-pick4-*</code>）并重新加载页面，
             同域下其它工具的缓存与 Service Worker 不受影响；
@@ -344,7 +349,7 @@
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.26-r9</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r10</b> ·
         本站为个人数据整理与娱乐参考工具，彩票结果随机，任何策略都不能保证中奖，请理性对待、量力而行。
       </p>
     </section>
@@ -440,6 +445,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.26-r9"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r10"></script>
 </body>
 </html>
