@@ -8,21 +8,21 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="六合彩每日 5 注（特码 / 三中三 / 四中四）：1 注完全随机 + 4 注风格精选，5 注互不重叠覆盖最大化；附公平赔率对照与逐期回放。" />
   <title>六合彩 · 每日 5 注</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r11" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r11" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r11" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r11" />
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r12" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r12" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r12" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r12" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.26-r11" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r12" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
             每日 5 注
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号">v2026.10.26-r11</span>
+            <span class="build-tag" id="buildTag" title="构建版本号">v2026.10.26-r12</span>
           </div>
           <div class="brand-subtitle" id="latestLine">正在读取底库…</div>
         </div>
@@ -94,7 +94,7 @@
             <option value="60">最近 60 期</option>
             <option value="120" selected>最近 120 期</option>
             <option value="365">最近 365 期</option>
-            <option value="all">全部</option>
+            <option value="all">全部（1759 期）</option>
           </select>
           <button type="button" class="btn btn-sm btn-primary" id="btnReplayRun">▶ 重新计算</button>
         </div>
@@ -138,7 +138,7 @@
           <div class="sync-actions">
             <button type="button" class="btn btn-sm" id="btnSyncCheck">👁 仅检查</button>
             <button type="button" class="btn btn-sm btn-primary" id="btnSyncNow">🔄 一键同步</button>
-            <button type="button" class="btn btn-sm" id="btnSyncReload">重新读取</button>
+            <button type="button" class="btn btn-sm" id="btnSyncFix">🛠 以数据源为准修复冲突</button>
             <button type="button" class="btn btn-sm" id="btnExportDb">导出底库 JSON</button>
           </div>
           <p class="hint-line" id="syncStatus">尚未读取数据源。同步只把缺失期号追加到本机，不改动内置底库。</p>
@@ -147,6 +147,7 @@
           <div class="sync-actions">
             <button type="button" class="btn btn-sm" id="btnPastePreview">解析预览</button>
             <button type="button" class="btn btn-sm btn-primary" id="btnPasteMerge">✓ 追加缺失期</button>
+            <button type="button" class="btn btn-sm" id="btnPasteDemo">填入示例</button>
             <button type="button" class="btn btn-sm" id="btnPasteClear">清空</button>
             <span class="hint-line" id="pasteMsg"></span>
           </div>
@@ -185,12 +186,12 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r11</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r12</p>
         </div>
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.26-r11</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r12</b> ·
         彩票每期独立，任何选号方法都不改变命中概率；本站只做数据整理与娱乐参考，请理性对待、量力而行。
       </p>
     </section>
@@ -280,6 +281,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.26-r11"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r12"></script>
 </body>
 </html>

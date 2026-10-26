@@ -68,13 +68,7 @@ const replay = {
   visible: REPLAY_PAGE,
   expanded: new Set(), // 展开的期号（用 draw.id，重新筛选后不会错位）
   filters: {
-    year: 'all',
-    range: '120',
-    from: '',
-    to: '',
-    strategy: 'daily5', // 'daily5' 每日 5 注 | 'custom' 当前自选号码
-    hit: 'all',
-    q: ''
+    range: '120' // 30 / 60 / 120 / 365 / all
   }
 };
 
@@ -544,26 +538,18 @@ function renderToday() {
 
 /* ==================== 渲染：④ 历史回放 ==================== */
 
-function populateYearTabs() {
-  const years = [...new Set(state.allDraws.map((d) => d.year))].sort((a, b) => b - a);
-  const host = $('histYearTabs');
-  if (!host) return;
-  const cur = replay.filters.year;
-  const options = ['all', ...years];
-  // 注意：年份可能是数字也可能来自 DOM 的字符串，必须按字符串比较，
-  // 否则会把刚选中的年份误判成「非法值」并重置成 all（导致年份筛选失效）
-  if (!options.map((y) => String(y)).includes(String(cur))) replay.filters.year = 'all';
-  host.innerHTML = options.map((y) => {
-    const label = y === 'all' ? `全部 (${state.allDraws.length})` : `${y} (${state.allDraws.filter((d) => d.year === y).length})`;
-    const active = String(y) === String(replay.filters.year);
-    return `<button type="button" class="pill${active ? ' active' : ''}" data-year="${y}">${label}</button>`;
-  }).join('');
-  // 「全部」范围的下拉文案跟随真实期数变化
-  const rangeAll = $('histRange')?.querySelector('option[value="all"]');
-  if (rangeAll) rangeAll.textContent = `全部（${state.allDraws.length} 期）`;
+/**
+ * 更新回放范围下拉里的「全部（N 期）」文案
+ *
+ * 说明：年度 / 命中 / 搜索筛选已下线，这里只剩「范围」一个维度。
+ * 每次底库变化都要重刷，否则「全部」后面显示的还是旧期数。
+ */
+function syncHistRangeLabel() {
+  const opt = $('histRange')?.querySelector('option[value="all"]');
+  if (opt) opt.textContent = `全部（${state.allDraws.length} 期）`;
 }
 
-/** 依据「年份 + 范围」筛出需要回放的期次 */
+/** 依据「范围」筛出需要回放的期次 */
 function replayTargets() {
   const f = replay.filters;
   let list = state.allDraws;
@@ -574,70 +560,45 @@ function replayTargets() {
   return list;
 }
 
-/** 应用「命中筛选 + 搜索」，得到最终展示的记录 */
-function applyReplayFilters(records) {
-  const f = replay.filters;
-  const q = f.q.trim().toLowerCase();
-  return records.filter((rec) => {
-    const d = rec.draw;
-    const anyWin = rec.five.some((e) => e.isWin);
-    if (f.hit === 'pick3' && !anyWin) return false;
-    if (f.hit === 'pick4' && !anyWin) return false;
-    if (f.hit === 'miss' && anyWin) return false;
-    if (!q) return true;
-    const hay = `${d.id} ${d.year}年第${d.period}期 ${d.date} ${numsText(d.numbers)} ${pad2(d.special)} ${d.numbers.join(',')}`;
-    return hay.toLowerCase().includes(q);
-  });
-}
-
-/** 分批计算逐期回放，避免一次性算上千期把页面卡死；token 防止旧结果覆盖新结果 */
-async function runReplay({ recompute = true } = {}) {
-  const f = replay.filters;
+/**
+ * 逐期回放（严格无未来函数）
+ *
+ * 每次都按当前「范围 + 玩法 + 随机盐值」重新计算；token 用于丢弃过期结果，
+ * 任何提前 return 的分支都必须把 replay.running 复位，否则后续点击会被静默忽略。
+ */
+async function runReplay() {
   const status = $('replayStatus');
-
-  // 只筛选、不重算：绝不能打断正在进行的计算，也不能把旧结果说成新结果
-  if (!recompute) {
-    if (replay.running) return; // 有任务在跑，等它跑完再按新筛选展示
-    if (replay.records.length) {
-      replay.filtered = applyReplayFilters(replay.records);
-      status.textContent = `已按当前筛选显示 ${replay.filtered.length} 期（推荐结果来自上一次计算，金额已按当前本金/赔率重算）。`;
-      renderReplayTable();
-    }
-    return;
-  }
-
-  // 真正开始新一轮计算时才递增 token：新一轮会让上一轮主动放弃结果
   const token = ++replay.token;
 
   const mode = playMode();
-  const size = targetSize(mode);
   const targets = replayTargets();
   if (targets.length === 0) {
     replay.running = false;
-    status.textContent = '当前筛选条件下没有可回放的期次。';
     replay.records = [];
     replay.filtered = [];
+    if (status) status.textContent = '当前范围没有可回放的期次。';
     renderReplayTable();
     return;
   }
 
   replay.running = true;
+  replay.expanded.clear(); // 换了范围 / 玩法，展开行按新列表重新来过
   const started = Date.now();
-  status.textContent = `正在逐期回放 ${targets.length} 期（每期只用该期之前的数据）…`;
+  if (status) status.textContent = `正在逐期回放 ${targets.length} 期（每期只用该期之前的数据）…`;
 
   const cfg = betConfig();
   const records = [];
   const chunk = Math.max(1, REPLAY_CHUNK);
 
   for (let i = 0; i < targets.length; i += chunk) {
-    if (token !== replay.token) return; // 已有新的计算任务，放弃本次结果
+    if (token !== replay.token) return; // 已有更新的任务接管，本次结果作废（running 由新任务维护）
     const part = buildDailyFiveRecords(state.allDraws, targets.slice(i, i + chunk), {
       ...cfg,
       randomSalt: state.randomSalt,
       mode
     });
     records.push(...part);
-    status.textContent = `正在逐期回放… ${records.length}/${targets.length} 期`;
+    if (status) status.textContent = `正在逐期回放… ${records.length}/${targets.length} 期`;
     // 让出主线程，保证筛选、滚动等交互不卡
     await new Promise((r) => setTimeout(r, 0));
   }
@@ -645,11 +606,11 @@ async function runReplay({ recompute = true } = {}) {
   if (token !== replay.token) return;
 
   replay.records = records;
-  replay.filtered = applyReplayFilters(records);
+  replay.filtered = records;
   replay.visible = REPLAY_PAGE;
   replay.running = false;
   const cost = ((Date.now() - started) / 1000).toFixed(1);
-  status.textContent = `✓ 已回放 ${records.length} 期（耗时 ${cost}s，无未来函数），当前筛选显示 ${replay.filtered.length} 期。`;
+  if (status) status.textContent = `✓ 已回放 ${records.length} 期（耗时 ${cost}s，无未来函数）。`;
   renderReplayTable();
 }
 
@@ -767,17 +728,22 @@ function renderReplayTable() {
 
   if (!list.length) {
     body.innerHTML = `<tr class="empty-row"><td colspan="6">${
-      replay.running ? '正在计算…' : '当前筛选条件下没有命中的期次，试试放宽筛选或点「重新计算回放」。'
+      replay.running ? '正在计算…' : '这个范围还没有回放结果，点「▶ 重新计算」试试。'
     }</td></tr>`;
   } else {
     body.innerHTML = visible.map(replayRowHtml).join('');
-    // 展开的详情行（按期号匹配，重新筛选后不会错位）
-    for (const drawId of replay.expanded) {
-      const idx = list.findIndex((r) => r.draw.id === drawId);
-      if (idx < 0 || idx >= visible.length) continue;
-      const tr = body.querySelector(`tr[data-draw-id="${CSS.escape(drawId)}"]`);
-      if (!tr) continue;
-      tr.insertAdjacentHTML('afterend', featureDetailHtml(list[idx]));
+    // 展开的详情行：按期号在真实 DOM 里找行。
+    // 不用 CSS.escape（老 WebView / 非浏览器环境没有 globalThis.CSS，一用就抛错，详情渲染不出来），
+    // 期号只有数字和横线，直接按 dataset 比对最稳。
+    if (replay.expanded.size) {
+      const rows = [...body.querySelectorAll('tr[data-draw-id]')];
+      for (const drawId of replay.expanded) {
+        const idx = list.findIndex((r) => r.draw.id === drawId);
+        if (idx < 0 || idx >= visible.length) continue;
+        const tr = rows.find((row) => row.dataset.drawId === drawId);
+        if (!tr) continue;
+        tr.insertAdjacentHTML('afterend', featureDetailHtml(list[idx]));
+      }
     }
   }
 
@@ -865,10 +831,10 @@ function refreshAfterDataChange() {
   rebuildMergedDraws();
   renderHeader();
   populatePeriodSelect();
-  populateYearTabs();
+  syncHistRangeLabel();
   renderToday();
   renderSyncPanel();
-  scheduleReplay({ recompute: true });
+  scheduleReplay();
 }
 
 /**
@@ -896,14 +862,6 @@ function stepPeriod(dir) {
   renderToday();
   const label = state.periodKey === 'NEXT' ? '下一期' : state.periodKey;
   showToast(`已切换到 ${label}`);
-}
-
-function mergeIncoming(parsed) {
-  const before = state.allDraws.length;
-  state.localDraws = mergeDraws(state.localDraws, parsed).merged;
-  saveLocalDraws();
-  refreshAfterDataChange();
-  return state.allDraws.length - before;
 }
 
 /* ==================== 事件绑定 ==================== */
@@ -936,7 +894,7 @@ function bindEvents() {
     saveConfig();
     planCache.clear();
     renderToday();
-    scheduleReplay({ recompute: true });
+    scheduleReplay();
   });
   on('btnPrevPeriod', 'click', () => stepPeriod(1));
   on('btnNextPeriod', 'click', () => stepPeriod(-1));
@@ -944,6 +902,7 @@ function bindEvents() {
     state.randomSalt += 1;
     saveRandomSalt();
     renderToday();
+    scheduleReplay(); // 回放里的 #1 也用的是同一个盐值，必须一起重算
     showToast(`随机注已重摇（第 ${state.randomSalt} 次）`);
   });
   on('btnResetRandom', 'click', () => {
@@ -951,6 +910,7 @@ function bindEvents() {
     state.randomSalt = 0;
     saveRandomSalt();
     renderToday();
+    scheduleReplay();
     showToast('已恢复默认随机');
   });
   on('fiveGrid', 'click', (e) => {
@@ -968,7 +928,12 @@ function bindEvents() {
     replay.visible += REPLAY_PAGE;
     renderReplayTable();
   });
-  on('btnReplayRun', 'click', () => runReplay({ recompute: true }));
+  // 范围下拉必须真的重算：之前这一段被误删，导致「换范围 → 点重新计算」看起来毫无反应
+  on('histRange', 'change', (e) => {
+    replay.filters.range = e.target.value || '120';
+    runReplay();
+  });
+  on('btnReplayRun', 'click', () => runReplay());
   on('histBody', 'click', (e) => {
     const btn = e.target.closest('[data-feat-toggle]');
     if (!btn) return;
@@ -997,20 +962,7 @@ function bindEvents() {
       saveConfig();
       renderHeader();
       renderToday();
-      if (replay.records.length) {
-        replay.filtered = applyReplayFilters(replay.records);
-        renderReplayTable();
-      }
-    });
-  });
-  // 特码赔率快捷值（9.6 / 9.8 / 48）
-  document.querySelectorAll('[data-odds-special]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const v = Number(btn.dataset.oddsSpecial);
-      if (!Number.isFinite(v) || v <= 0) return;
-      $('cfgOddsSpecial').value = v;
-      $('cfgOddsSpecial').dispatchEvent(new Event('input', { bubbles: true }));
-      showToast(`特码赔率已设为 ${v} 倍`);
+      if (replay.records.length) renderReplayTable(); // 金额按新本金 / 赔率重算
     });
   });
   on('btnResetCfg', 'click', () => {
@@ -1018,12 +970,7 @@ function bindEvents() {
     saveConfig();
     renderHeader();
     renderToday();
-    renderPicker();
-    renderCheck();
-    if (replay.records.length) {
-      replay.filtered = applyReplayFilters(replay.records);
-      renderReplayTable();
-    }
+    if (replay.records.length) renderReplayTable();
     showToast('已恢复默认本金与赔率');
   });
   on('btnCheckUpdate', 'click', async () => {
@@ -1056,7 +1003,6 @@ function bindEvents() {
   on('btnSyncCheck', 'click', () => runSync({ write: false }));
   on('btnSyncNow', 'click', () => runSync({ write: true }));
   on('btnSyncFix', 'click', () => runSync({ write: false, fix: true }));
-  on('btnSyncReload', 'click', () => runSync({ write: false }));
 
   on('btnExportDb', 'click', () => {
     const payload = {
@@ -1117,32 +1063,6 @@ function bindEvents() {
     $('pasteMsg').textContent = '';
   });
 
-  on('btnFetchRemote', 'click', async () => {
-    const msg = $('pasteMsg');
-    msg.textContent = `正在尝试抓取 ${DEFAULT_CONFIG.remoteSourceUrl} …`;
-    const html = await fetchRemoteSourceHtml();
-    if (!html) {
-      msg.textContent = '⚠ 远程直连被浏览器跨域拦截，请用「粘贴导入兜底」，或点「重新读取数据源」读取仓库 JSON。';
-      return;
-    }
-    const parsed = parseDrawsInput(html);
-    if (!parsed.length) {
-      msg.textContent = '⚠ 远程页面已抓到，但没有解析出有效开奖记录。';
-      return;
-    }
-    const r = compareDrawSets(state.allDraws, parsed);
-    if (!r.appendable.length) {
-      msg.textContent = `远程解析 ${parsed.length} 期，但没有可追加的期次`;
-      return;
-    }
-    state.localDraws = mergeDraws(state.localDraws, r.appendable).merged;
-    saveLocalDraws();
-    refreshAfterDataChange();
-    msg.textContent = `✓ 远程解析 ${parsed.length} 期，已追加 ${r.appendable.length} 期，现在共 ${state.allDraws.length} 期`;
-    showToast('远程同步成功');
-  });
-
-  /* 本机手动开奖：导出 / 导入 / 清空 */
   on('btnExportLocal', 'click', () => {
     if (!state.localDraws.length) { showToast('本机没有手动录入的开奖'); return; }
     downloadJson({
@@ -1311,7 +1231,7 @@ async function runSync({ write = false, fix = false } = {}) {
   if (syncState.busy) return;
   syncState.busy = true;
   const status = $('syncStatus');
-  const btns = ['btnSyncCheck', 'btnSyncNow', 'btnSyncFix', 'btnSyncReload'].map((id) => $(id)).filter(Boolean);
+  const btns = ['btnSyncCheck', 'btnSyncNow', 'btnSyncFix'].map((id) => $(id)).filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
   status.textContent = '正在读取仓库数据源 ./data/draws.json …';
   try {
@@ -1387,10 +1307,10 @@ async function runSync({ write = false, fix = false } = {}) {
 
 /* ==================== Service Worker / 缓存 ==================== */
 let replayTimer = null;
-function scheduleReplay({ recompute }) {
+function scheduleReplay() {
   clearTimeout(replayTimer);
   replayTimer = setTimeout(() => {
-    runReplay({ recompute }).catch((err) => {
+    runReplay().catch((err) => {
       console.error('[replay]', err);
       $('replayStatus').textContent = `⚠ 回放计算失败：${err.message}`;
     });
@@ -1485,7 +1405,7 @@ function initApp() {
   loadSavedState();
   renderHeader();
   populatePeriodSelect();
-  populateYearTabs();
+  syncHistRangeLabel();
   bindEvents();
   renderToday();
   renderSyncPanel();
@@ -1497,7 +1417,7 @@ function initApp() {
   }
 
   // 首屏回放计算（不阻塞首屏渲染）
-  scheduleReplay({ recompute: true });
+  scheduleReplay();
 
   window.__APP_BOOTED__ = true;
 }
