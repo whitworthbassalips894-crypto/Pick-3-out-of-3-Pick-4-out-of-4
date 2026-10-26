@@ -206,7 +206,7 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   assert.ok(html.includes('data-mode="special"'), '必须能切到特码');
   assert.ok(html.includes('data-mode="pick3"'), '必须能切到选三');
   assert.ok(html.includes('data-mode="pick4"'), '必须能切到选四');
-  assert.ok(html.includes('特码 · 每注 5 号'), '要有特码玩法标签');
+  assert.ok(html.includes('特码 · 每注 1 号'), '要有特码玩法标签（1 中 1，每注 1 个号）');
   assert.ok(html.includes('三中三 · 每注 3 号'), '要有三中三玩法标签');
   assert.ok(html.includes('四中四 · 每注 4 号'), '要有四中四玩法标签');
   // 顺序：特码 → 选三 → 选四

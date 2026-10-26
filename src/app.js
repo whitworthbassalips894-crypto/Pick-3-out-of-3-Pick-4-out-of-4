@@ -6,7 +6,7 @@
  * 关键约定：
  *  - 「每日 5 注」= 1 注完全随机（纯 49 选 size，允许与精选重复）+ 4 注风格精选
  *    （热号 / 冷号 / 形态均衡 / 补位覆盖），四注精选之间互不重复（见 src/dailyfive.js）。
- *  - 特码玩法命中 = 开奖的最后一个号码落在这注的 5 个号里；
+ *  - 特码玩法（1 中 1）= 开奖的最后一个号码正好等于这注的 1 个号码；
  *    三中三 / 四中四命中 = 这注号码全部落在 6 个正码里（特码不计入）。
  *  - 历史回放严格「无未来函数」：第 T 期推荐只用 T 期之前的数据。
  *  - 任何异常都要给出明确提示，不能白屏，也不能永远停在「加载中…」。
@@ -89,7 +89,7 @@ const on = (id, evt, fn, opts) => {
 
 /**
  * 当前玩法
- *  - special = 特码（每注 5 个号，命中 = 开奖的最后一个号码落在这 5 个号里）
+ *  - special = 特码（每注 1 个号，1 中 1：命中 = 开奖特码正好等于它）
  *  - pick3   = 三中三（每注 3 个号，全部落在 6 个正码里）
  *  - pick4   = 四中四（每注 4 个号，全部落在 6 个正码里）
  */
@@ -101,11 +101,12 @@ function playMode() {
 function resolveMode(x) {
   if (x === 3 || x === '3' || x === 'pick3') return 'pick3';
   if (x === 4 || x === '4' || x === 'pick4') return 'pick4';
-  if (x === 5 || x === '5' || x === 'special') return 'special';
+  // 特码 = 1 中 1，每注 1 个号；5 是旧版「5 个号包 1 个特码」的写法，保留兼容
+  if (x === 1 || x === '1' || x === 5 || x === '5' || x === 'special') return 'special';
   return playMode();
 }
 
-/** 当前玩法的每注号码个数（特码 5 / 三中三 3 / 四中四 4） */
+/** 当前玩法的每注号码个数（特码 1 / 三中三 3 / 四中四 4） */
 function targetSize(mode = playMode()) {
   return getPlayMode(resolveMode(mode)).size;
 }
@@ -327,15 +328,15 @@ function fiveCardText(e) {
 /**
  * 「更多 → 本金与赔率」里的赔率提示：如实展示期望回报率
  *
- * 特码玩法的公平赔率是 9.8 倍（5 个号覆盖 1 个特码）；如果用户填了 48 倍（传统「押 1 个号」的赔率），
- * 期望回报率会算到 489% —— 数学上不可能长期成立，必须提醒用户核对。
+ * 特码是「1 中 1」：1 个号、命中率 1/49、公平赔率 49 倍，市面常见 48 倍（EV ≈ 97.96%）。
+ * 用户把赔率填得高于 49 倍时，期望回报率会超过 100%，必须提醒核对。
  */
 function renderOddsNote() {
   const el = $('cfgOddsNote');
   if (!el) return;
   const stake = Number(state.config.stake) || DEFAULT_CONFIG.stake;
   const rows = [
-    { key: 'oddsSpecial', label: '特码（5 个号）', mode: 'special' },
+    { key: 'oddsSpecial', label: '特码（1 个号）', mode: 'special' },
     { key: 'odds3', label: '三中三（3 个号）', mode: 'pick3' },
     { key: 'odds4', label: '四中四（4 个号）', mode: 'pick4' }
   ];
@@ -347,9 +348,8 @@ function renderOddsNote() {
     const flag = ev > 1 + 1e-6
       ? ' ⚠ 高于公平赔率，期望回报率会超过 100%，真实博彩有抽水，请核对赔率'
       : ev < 0.5 ? '（长期为负）' : ev > 1 - 1e-6 ? '（公平值）' : '';
-    const marketHint = mode === 'special'
-      ? `；5 个号一注的默认赔率是 9.6 倍（期望回报率 98.0%），9.8 倍即公平赔率；48 倍是「押 1 个号」的赔率，套到 5 个号上会算出 489.8% 的期望回报率，不现实`
-      : '';
+    // 特码是 1 中 1：只有 1 个号，赔率 49 倍即公平值，市面常见 48 倍
+    const marketHint = mode === 'special' ? '（1 中 1：市面常见 48 倍）' : '';
     return `${label}：${odds} 倍 → 单注命中 P = ${formatPercent(base.hitProb, 4)}，公平赔率约 ${fair % 1 === 0 ? fair : fair.toFixed(1)} 倍，期望回报率约 ${formatPercent(ev, 1)}${flag}${marketHint}`;
   });
   el.innerHTML = `期望回报率 = 赔率 × 命中概率（1 = 公平）。当前：<br>${parts.map(escapeHtml).join('<br>')}`;
@@ -409,7 +409,7 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1) {
   const mode = resolveMode(size);
   const isSpecial = mode === 'special';
   // 直选：命中 = 这一注的号码全部落在 6 个正码里
-  // 特码：命中 = 开奖的最后一个号码落在这 5 个号里
+  // 特码（1 中 1）：命中 = 开奖的最后一个号码正好等于这 1 个号
   const drawNormals = ctx.draw ? ctx.draw.numbers.slice(0, 6) : [];
   const hitSet = ctx.draw
     ? new Set(isSpecial
@@ -431,7 +431,7 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1) {
     const label = isSpecial
       ? (d.isWin
         ? `中特码 ✓ 返奖 ${amount(d.payout)}`
-        : `未中 · 特码 ${ctx.draw.special != null ? pad2(ctx.draw.special) : '—'} 不在这 ${size} 个号里`)
+        : `未中 · 本期特码是 ${ctx.draw.special != null ? pad2(ctx.draw.special) : '—'}`)
       : (d.isWin ? `中${size} ✓ 返奖 ${amount(d.payout)}` : `未中 · 命中 ${d.hitCount}/${size} 个正码`);
     hitHtml = `
       <div class="fc-hit">
@@ -507,7 +507,7 @@ function renderToday() {
     if (!ctx.draw) {
       box.innerHTML = '';
     } else {
-      // 每注 1 注投注：直选 = 号码全部落在 6 正码里；特码 = 特码落在这 5 个号里
+      // 每注 1 注投注：直选 = 号码全部落在 6 正码里；特码 = 特码正好等于这 1 个号
       const perFive = plan.five.map((e) => {
         const ev = evaluateTickets([e.numbers], ctx.draw, { ...cfg, playMode: mode, targetSize: size });
         return { e, d: ev.details[0] || { isWin: false, hitCount: 0, hitNums: [], payout: 0 } };

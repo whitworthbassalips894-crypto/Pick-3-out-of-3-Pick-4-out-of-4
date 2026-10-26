@@ -74,17 +74,17 @@ export function formatPercent(p, digits = 2) {
 /* ------------------------------------------------------------------ 直选 */
 
 /**
- * 特码基线：每注 5 个号码，开奖的最后一个号码（特码）落在这 5 个号里就算命中
+ * 特码基线：**1 中 1**——每注只有 1 个号码，开奖的特码正好是它才算命中
  *
- *   P(中) = 5 / 49 ≈ 10.204%
- * 理论公平赔率 = 49 / 5 = 9.8 倍
+ *   P(中) = 1 / 49 ≈ 2.0408%
+ * 理论公平赔率 = 49 倍；市面常见 48 倍（EV = 48/49 ≈ 97.96%，抽水约 2%）
  *
- * 参考：传统「押 1 个号」的特码赔率约 48 倍（EV = 48/49 ≈ 98%）；
- * 5 个号一注要达到同样的返还水平，赔率应为 9.6 倍（EV 同样是 48/49）。
+ * 注意：这不是「5 个号包一个特码」。一注 1 个号是特码的标准玩法，
+ * 5 注就是 5 个不同的单号，合计命中率 = 5/49 ≈ 10.204%（各号互斥，可直接相加）。
  */
 export function specialBaseline() {
   const population = 49;
-  const size = 5;
+  const size = 1;
   const hitProb = size / population;
   return {
     size,
@@ -99,10 +99,10 @@ export function specialBaseline() {
     /** 每注平均覆盖的号码数（与命中概率同值） */
     expectedHits: hitProb,
     /**
-     * 每期 5 注里至少中 1 注的概率：**假设 5 注号码互不重叠**的上界。
-     * 实际 5 注会共享部分号码（去重后平均覆盖 19 个号），真实值见 anyHitBaseline()。
+     * 每期 5 注里至少中 1 注的概率：特码各号互斥，5 个不同单号可直接相加 → 5/49。
+     * （若 5 注里有重复号，实际值见 anyHitProbability() 的并集口径。）
      */
-    anyHitProb: 1 - (1 - hitProb) ** 5
+    anyHitProb: Math.min(1, 5 * hitProb)
   };
 }
 
@@ -116,11 +116,14 @@ export function specialBaseline() {
  *
  * 期望回报率 = 赔率 × 命中概率（页面必须如实呈现，不能美化亏损）。
  *
- * @param {number|string} mode 3 / 4（号码个数）或 'special' / 'pick3' / 'pick4'（玩法）
+ * @param {number|string} mode 1 / 3 / 4（每注号码个数）或 'special' / 'pick3' / 'pick4'（玩法）
  */
 export function directBaseline(mode = 3) {
   const raw = String(mode ?? '').trim();
-  if (raw === 'special' || raw === '特码' || raw === 5 || raw === '5') return specialBaseline();
+  // 1 = 特码（1 中 1）；5 是旧版「5 个号包 1 个特码」的写法，保留兼容
+  if (raw === 'special' || raw === '特码' || raw === 1 || raw === '1' || raw === 5 || raw === '5') {
+    return specialBaseline();
+  }
 
   const population = 49;
   const draws = 6;

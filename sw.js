@@ -14,7 +14,7 @@
  *      由 tests/build-version.test.mjs 自动校验。
  */
 
-const BUILD_ID = '2026.10.26-r13';
+const BUILD_ID = '2026.10.26-r14';
 const CACHE_PREFIX = 'mark6-pick3-pick4-';
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 

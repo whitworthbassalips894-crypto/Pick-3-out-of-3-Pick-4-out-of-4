@@ -156,17 +156,18 @@ export function sanitizeConfig(raw, defaults) {
   out.stake = num(raw.stake, defaults.stake, 1, 1_000_000);
   out.odds3 = num(raw.odds3, defaults.odds3, 1, 1_000_000);
   out.odds4 = num(raw.odds4, defaults.odds4, 1, 1_000_000);
-  // 特码赔率：旧版本默认写的 48 倍是「押 1 个号」的赔率，套到 5 个号上期望回报率高达 489.8%，
-  // 属于默认值错误 → 一次性迁移成 9.6 倍；用户自己填过的其它数值保持不变。
-  const OLD_SPECIAL_ODDS = 48;
+  // 特码赔率：特码是「1 中 1」玩法，公平赔率 49，市面常见 48。
+  // 历史上有一版把特码当成「5 个号包 1 个特码」并默认 9.6 倍 → 那一版存下来的 9.6
+  // 是错的默认值，这里一次性迁移成 48；用户自己填过的其它数值保持不变。
+  const LEGACY_SPECIAL_ODDS = 9.6;
   const rawSpecialOdds = Number(raw.oddsSpecial);
-  if (rawSpecialOdds === OLD_SPECIAL_ODDS) {
+  if (rawSpecialOdds === LEGACY_SPECIAL_ODDS) {
     repaired = true;
-    out.oddsSpecial = defaults.oddsSpecial ?? 9.6;
+    out.oddsSpecial = defaults.oddsSpecial ?? 48;
   } else {
-    out.oddsSpecial = num(raw.oddsSpecial, defaults.oddsSpecial ?? 9.6, 1, 1_000_000);
+    out.oddsSpecial = num(raw.oddsSpecial, defaults.oddsSpecial ?? 48, 1, 1_000_000);
   }
-  // 当前玩法：special = 特码（每注 5 个号），pick3 = 三中三，pick4 = 四中四
+  // 当前玩法：special = 特码（每注 1 个号，1 中 1），pick3 = 三中三，pick4 = 四中四
   const validModes = ['special', 'pick3', 'pick4'];
   const mode = String(raw.playMode ?? '').trim();
   if (validModes.includes(mode)) {
@@ -205,7 +206,7 @@ export function sanitizePicks(raw) {
     }
     return out;
   };
-  // 存储层保留 7 个号的上限（不丢老用户数据）；直选玩法在应用层按 3 / 4 / 5 个号收敛
+  // 存储层保留 7 个号的上限（不丢老用户数据）；应用层按当前玩法收敛（特码 1 / 三中三 3 / 四中四 4）
   const picks = toNums(raw.picks ?? raw.numbers ?? raw.selection).sort((a, b) => a - b).slice(0, 7);
   const pinned = toNums(raw.pinned ?? raw.dan ?? raw.locked)
     .filter((n) => picks.includes(n))

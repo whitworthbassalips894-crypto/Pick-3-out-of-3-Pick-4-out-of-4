@@ -3,7 +3,7 @@
  *
  * 先把概率说清楚（这也是本引擎唯一的数学依据）：
  *   每期开奖相互独立，任何选号方法都**不能**改变单注命中概率：
- *     特码    每注 5 个号，命中 P = 5/49 ≈ 10.20%
+ *     特码    每注 1 个号（1 中 1），命中 P = 1/49 ≈ 2.0408%
  *     三中三  每注 3 个号全落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
  *     四中四  每注 4 个号全落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.00708%
  *   能改变的只有「覆盖面」：各注号码越少重叠，N 注合计「至少中 1 注」的概率越高。
@@ -13,6 +13,7 @@
  *   #2 🔥 热号      近 30 期出现次数最多的号（顺势风格）
  *   #3 🎯 冷号      遗漏最久的号（回补风格）
  *   #4 ⚖️ 形态均衡  和值靠近理论均值，奇偶 / 大小 / 三区均衡
+ *                   （特码只有 1 个号时退化为「中位号」，取靠近 25 的号）
  *   #5 🧩 补位覆盖  补齐 #2~#4 没覆盖到的尾数与区段
  *
  * 重叠策略：随机注不设任何限制（随机就该是随机的）；#2~#5 四注精选之间互不重复，
@@ -80,9 +81,9 @@ export const DIRECT_SIZES = [3, 4, 5];
 /** 特码玩法的说明（命中对象是特码，统计口径换成「该号作为特码出现」的历史） */
 const SPECIAL_DESCRIPTIONS = {
   random: '从 01–49 等概率机选（纯随机对照，允许与精选重复，可重摇）',
-  hot: '近 30 期作为特码出现次数最多的号 + 上期特码邻号',
+  hot: '近 30 期作为特码出现次数最多的号',
   cold: '作为特码遗漏最久的号',
-  shape: '和值靠近 5 码理论均值，奇偶 / 大小 / 三区均衡',
+  shape: '靠近中值 25 的单号（大小 / 三区居中）',
   cover: '补齐 #2~#4 未覆盖的尾数与区段'
 };
 
@@ -100,13 +101,13 @@ export function catalogForMode(mode = 'pick3') {
 
 /**
  * 随机理论期望
- * @param {number|string} mode 玩法（special / pick3 / pick4）或号码个数（3 / 4 / 5）
- *  - 特码：每注 5 个号覆盖 1 个特码 → 期望命中率 5/49 ≈ 0.102
+ * @param {number|string} mode 玩法（special / pick3 / pick4）或号码个数（1 / 3 / 4）
+ *  - 特码：每注 1 个号（1 中 1）→ 期望命中率 1/49 ≈ 0.0204
  *  - 三中三 / 四中四：size 个号 × 6 个正码 / 49（期望命中**号码个数**）
  */
 export function randomExpectedHits(mode = 3) {
   const raw = String(mode ?? '').trim();
-  if (raw === 'special' || raw === '特码' || raw === 5 || raw === '5') return 5 / 49;
+  if (raw === 'special' || raw === '特码' || raw === 1 || raw === '1') return 1 / 49;
   const size = raw === 'pick4' || raw === 4 || raw === '4' ? 4 : 3;
   return (size * 6) / 49;
 }
@@ -634,7 +635,7 @@ export function anyHitProbability(tickets = [], mode = 'pick3') {
  * @param {object[]} allDraws 完整底库（降序）
  * @param {{ year?: number, periodNum?: number, date?: string }} [targetMeta]
  * @param {{ randomSalt?: number, mode?: string, pinnedNumbers?: number[] }} [options]
- *        mode: 'special' = 特码（每注 5 个号，命中 = 特码落在这 5 个号里）
+ *        mode: 'special' = 特码（每注 1 个号，1 中 1：命中 = 特码正好等于这个号）
  *              'pick3'   = 三中三（每注 3 个号，全部落在 6 正码里）
  *              'pick4'   = 四中四（每注 4 个号，全部落在 6 正码里）
  */
@@ -757,7 +758,7 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
  * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, randomSalt?: number, mode?: string, size?: number }} [options]
  */
 export function buildDailyFiveRecords(allDraws = [], targets = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 9.6, randomSalt = 0 } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48, randomSalt = 0 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
   const records = [];
@@ -794,10 +795,11 @@ export function buildDailyFiveRecords(allDraws = [], targets = [], options = {})
  * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, customNumbers?: number[], mode?: string, size?: number }} [options]
  */
 export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 9.6 } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
-  const picks = normalizeNumbers(options.customNumbers || [], { sort: true, maxCount: size });
+  // 自选必须正好是当前玩法的号码个数（特码 = 1 个号），多填 / 少填都不生成记录
+  const picks = normalizeNumbers(options.customNumbers || [], { sort: true });
   if (picks.length !== size) return [];
 
   const records = [];
@@ -833,14 +835,14 @@ export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
  * 汇总 5 注的表现
  *
  * 每注就是 1 注投注；成本 = 期数 × 单注本金；返奖 = 命中期数 × 单注本金 × 赔率。
- *  - 特码玩法：命中 = 开奖特码落在这 5 个号里
+ *  - 特码玩法：命中 = 开奖特码正好等于这 1 个号（1 中 1）
  *  - 三中三 / 四中四：命中 = 该注号码全部落在 6 个正码里
  *
  * @param {object[]} records buildDailyFiveRecords / buildCustomRecords 的输出
  * @param {{ stake?: number, odds3?: number, odds4?: number, oddsSpecial?: number, mode?: string, size?: number }} [options]
  */
 export function summarizeDailyFive(records = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 9.6 } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
   const odds = spec.id === 'special' ? oddsSpecial : spec.id === 'pick4' ? odds4 : odds3;
