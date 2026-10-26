@@ -57,14 +57,29 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     assert.equal(window.document.querySelectorAll('#fiveGrid .five-card').length, 5, '5 注卡片没渲染出来');
     assert.ok(text('heroMeta').includes('覆盖'), '应显示 5 注覆盖的号码数');
 
-    // 5 注互不重叠：25 个不同号码（特码默认玩法，每注 5 个）
+    // 5 注共 25 个号码（特码默认玩法，每注 5 个）；随机注允许与精选重复，所以去重后 ≤ 25
     const five = [...window.document.querySelectorAll('#fiveGrid .fc-balls .lotto-ball')]
       .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
     assert.equal(five.length, 25, `应有 25 个号码，实际 ${five.length}`);
-    assert.equal(new Set(five).size, 25, '5 注之间不能重复用号');
+    assert.ok(new Set(five).size <= 25 && new Set(five).size >= 20, `并集号码数异常：${new Set(five).size}`);
 
-    // 概率口径行：至少中 1 注 51.02%（特码 25/49）
-    assert.ok(text('featuredCostLine').includes('51.020%'), `覆盖概率没显示：${text('featuredCostLine')}`);
+    // 精选四注（#2~#5）之间必须互不重复
+    const picked = [...window.document.querySelectorAll('#fiveGrid .five-card:not(.is-random) .fc-balls .lotto-ball')]
+      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
+    assert.equal(picked.length, 20, `精选应有 20 个号码，实际 ${picked.length}`);
+    assert.equal(new Set(picked).size, 20, '精选四注之间不能重复用号');
+
+    // 随机注说明要讲清「纯 49 选、允许重复」
+    const randomCard = window.document.querySelector('#fiveGrid .five-card.is-random');
+    assert.ok(randomCard.textContent.includes('49 个号等概率机选'), '随机注说明没更新');
+
+    // 概率口径行：单注命中 10.2041%、公平赔率 9.8、当前回报率 98.0%、至少中 1 注 = 并集/49
+    assert.ok(text('featuredCostLine').includes('10.2041%'), `单注命中率没显示：${text('featuredCostLine')}`);
+    assert.ok(text('featuredCostLine').includes('9.8 倍'), '公平赔率没显示');
+    assert.ok(text('featuredCostLine').includes('98.0%'), '期望回报率没显示');
+    const distinct = new Set(five).size;
+    const expectAnyHit = ((distinct / 49) * 100).toFixed(3);
+    assert.ok(text('featuredCostLine').includes(expectAnyHit), `至少中 1 注应为并集/49 = ${expectAnyHit}%：${text('featuredCostLine')}`);
     assert.ok(text('auditLine').includes('2022-132'), '底库体检没列出坏行');
     assert.equal(window.document.querySelectorAll('#histMetrics .mc-table thead th').length, 5, '逐注对比表应有 5 列');
     assert.ok(text('replayStatus').includes('已回放'), `回放未完成：${text('replayStatus')}`);

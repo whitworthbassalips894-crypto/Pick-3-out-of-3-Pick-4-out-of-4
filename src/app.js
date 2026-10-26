@@ -4,8 +4,8 @@
  * 一页流结构：① 今日 5 注 → ② 历史回放 → ③ 数据（折叠） → ④ 设置（折叠）
  *
  * 关键约定：
- *  - 「每日 5 注」= 1 注完全随机 + 4 注风格精选（热号 / 冷号 / 形态均衡 / 补位覆盖），
- *    5 注号码互不重叠，5 注并集覆盖 5×size 个不同号码（见 src/dailyfive.js）。
+ *  - 「每日 5 注」= 1 注完全随机（纯 49 选 size，允许与精选重复）+ 4 注风格精选
+ *    （热号 / 冷号 / 形态均衡 / 补位覆盖），四注精选之间互不重复（见 src/dailyfive.js）。
  *  - 特码玩法命中 = 开奖的最后一个号码落在这注的 5 个号里；
  *    三中三 / 四中四命中 = 这注号码全部落在 6 个正码里（特码不计入）。
  *  - 历史回放严格「无未来函数」：第 T 期推荐只用 T 期之前的数据。
@@ -489,7 +489,11 @@ function renderToday() {
       : `${t.year}年第${t.period}期 · 已开奖`;
   }
   const heroMeta = $('heroMeta');
-  if (heroMeta) heroMeta.textContent = `5 注覆盖 ${cov.distinct} 个号 · 互不重叠`;
+  if (heroMeta) {
+    heroMeta.textContent = cov.overlap > 0
+      ? `5 注合计覆盖 ${cov.distinct} 个号（随机注与精选重复 ${cov.overlap} 个）`
+      : `5 注合计覆盖 ${cov.distinct} 个号`;
+  }
   const resetBtn = $('btnResetRandom');
   if (resetBtn) resetBtn.disabled = state.randomSalt === 0;
 
@@ -814,13 +818,15 @@ function renderReplayMetrics() {
 
   const ev = expectedReturnRate(mode, odds);
   const fair = baseline.fairOdds >= 100 ? Math.round(baseline.fairOdds) : baseline.fairOdds.toFixed(1);
-  const covered = size * 5;
-  const anyHit = isSpecial ? covered / 49 : Math.min(1, 5 * baseline.hitProb);
+  // 「至少中 1 注」按当前这一期 5 注的实际号码精确算（随机注可能与精选重复）
+  const plan = getFivePlan(getPeriodContext().target);
+  const anyHit = plan.coverage?.anyHit ?? baseline.hitProb;
+  const distinct = plan.coverage?.distinct ?? size * 5;
   const base = $('histBaseline');
   if (base) {
     base.innerHTML = `随机基线：单注命中 <b>${formatPercent(baseline.hitProb, 4)}</b>，公平赔率 <b>${fair}</b> 倍；
       当前赔率 ${odds} 倍 → 期望回报率 <b>${formatPercent(ev, 1)}</b>。
-      5 注互不重叠、覆盖 ${covered} 个号 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
+      以当前这期 5 注的实际号码（覆盖 ${distinct} 个号、含随机注与精选的重叠）算 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
       回放只是历史统计，不能保证未来中奖，也不构成投注建议。`;
   }
 }

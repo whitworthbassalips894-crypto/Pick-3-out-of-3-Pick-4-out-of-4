@@ -6,16 +6,18 @@
  *     特码    每注 5 个号，命中 P = 5/49 ≈ 10.20%
  *     三中三  每注 3 个号全落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
  *     四中四  每注 4 个号全落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.00708%
- *   能改变的只有「覆盖面」：5 注号码互不重叠时，5 注合计「至少中 1 注」的概率最大
- *     （特码 25/49 ≈ 51.0%；三中三 ≈ 5 × 0.1086% ≈ 0.543%；四中四 ≈ 5 × 0.00708% ≈ 0.0354%）
- *   所以本引擎的唯一硬约束是：5 注共 5×size 个号码**互不重复**。
+ *   能改变的只有「覆盖面」：各注号码越少重叠，N 注合计「至少中 1 注」的概率越高。
  *
  * 5 注分工（风格不同，概率相同）：
- *   #1 🎲 完全随机  从 4 注精选没用到的那批号里等概率机选（对照组，可重摇）
+ *   #1 🎲 完全随机  **纯 49 选 size 等概率机选**，允许与精选重复（对照组，可重摇）
  *   #2 🔥 热号      近 30 期出现次数最多的号（顺势风格）
  *   #3 🎯 冷号      遗漏最久的号（回补风格）
  *   #4 ⚖️ 形态均衡  和值靠近理论均值，奇偶 / 大小 / 三区均衡
- *   #5 🧩 补位覆盖  补齐前 4 注没覆盖到的尾数与区段
+ *   #5 🧩 补位覆盖  补齐 #2~#4 没覆盖到的尾数与区段
+ *
+ * 重叠策略：随机注不设任何限制（随机就该是随机的）；#2~#5 四注精选之间互不重复，
+ * 让「补位覆盖」这一注有意义、也让整体覆盖面不至于浪费。
+ * 「至少中 1 注」的概率按实际号码用容斥公式精确计算（见 anyHitProbability），不靠假设。
  *
  * 严格无未来函数：第 T 期的 5 注只用严格早于 T 期的正码 / 特码数据。
  * 确定性：同一期 + 同一重摇盐值 + 同一玩法 → 永远得到同一组 5 注。
@@ -33,7 +35,7 @@ export const DAILY_FIVE_CATALOG = [
     name: '完全随机',
     icon: '🎲',
     random: true,
-    description: '从 4 注精选未用的号里等概率机选（对照基线，可重摇）'
+    description: '从 01–49 等概率机选（纯随机对照，允许与精选重复，可重摇）'
   },
   {
     id: 'hot',
@@ -65,7 +67,7 @@ export const DAILY_FIVE_CATALOG = [
     name: '补位覆盖',
     icon: '🧩',
     random: false,
-    description: '补齐前 4 注未覆盖的尾数与区段，让 5 注铺满 01–49'
+    description: '补齐 #2~#4 未覆盖的尾数与区段，让精选四注铺得更开'
   }
 ];
 
@@ -77,11 +79,11 @@ export const DIRECT_SIZES = [3, 4, 5];
 
 /** 特码玩法的说明（命中对象是特码，统计口径换成「该号作为特码出现」的历史） */
 const SPECIAL_DESCRIPTIONS = {
-  random: '从 4 注精选未用的号里等概率机选（对照基线，可重摇）',
+  random: '从 01–49 等概率机选（纯随机对照，允许与精选重复，可重摇）',
   hot: '近 30 期作为特码出现次数最多的号 + 上期特码邻号',
   cold: '作为特码遗漏最久的号',
   shape: '和值靠近 5 码理论均值，奇偶 / 大小 / 三区均衡',
-  cover: '补齐前 4 注未覆盖的尾数与区段'
+  cover: '补齐 #2~#4 未覆盖的尾数与区段'
 };
 
 /**
@@ -573,6 +575,58 @@ function buildCoverScoreMap(used = new Set(), baseMap = {}) {
   return out;
 }
 
+/**
+ * N 注号码「至少中 1 注」的精确概率（按实际号码算，允许注与注之间重复）
+ *
+ * 特码：命中 = 开奖特码落在这一注的 size 个号里，
+ *   所以「至少中 1 注」= 开奖特码落在这 N 注号码的**并集**里 → 并集号码数 / 49（精确）。
+ *
+ * 三中三 / 四中四：命中 = 这一注的 size 个号全部落在 6 个正码里。
+ *   记每一注的命中事件 A_t，用容斥原理：
+ *     P(∪A_t) = Σ_{∅≠U⊆T} (-1)^{|U|+1} · C(49 - m_U, 6 - m_U) / C(49, 6)
+ *   其中 m_U = U 里所有号码去重后的个数（6 个正码要包含 U 的并集，剩下 6 - m_U 个位置
+ *   从其余 49 - m_U 个号里选；m_U > 6 时不可能命中，该项为 0）。
+ *   注与注之间有重叠时，并集概率会小于「N × 单注概率」，这里如实算出来。
+ *
+ * @param {number[][]} tickets 每注号码
+ * @param {string} [mode] 'special' / 'pick3' / 'pick4'
+ * @returns {number} 0~1
+ */
+export function anyHitProbability(tickets = [], mode = 'pick3') {
+  const spec = getPlayMode(mode);
+  const size = spec.size;
+  const clean = (Array.isArray(tickets) ? tickets : [])
+    .map((t) => normalizeNumbers(t, { sort: true, maxCount: size }))
+    .filter((t) => t.length === size);
+  if (!clean.length) return 0;
+
+  // 特码：并集号码数 / 49
+  if (spec.id === 'special') {
+    return Math.min(1, new Set(clean.flat()).size / 49);
+  }
+
+  const draws = 6;
+  const total = binomial(49, draws);
+  if (!(total > 0)) return 0;
+  let favorable = 0;
+  const n = clean.length;
+  for (let mask = 1; mask < (1 << n); mask++) {
+    const union = new Set();
+    let bits = 0;
+    for (let i = 0; i < n; i++) {
+      if (!(mask & (1 << i))) continue;
+      bits++;
+      for (const x of clean[i]) union.add(x);
+    }
+    const m = union.size;
+    if (m > draws) continue; // 号码超过 6 个，这一组注不可能同时命中
+    const ways = binomial(49 - m, draws - m);
+    favorable += (bits % 2 === 1 ? 1 : -1) * ways;
+  }
+  const p = favorable / total;
+  return Math.min(1, Math.max(0, p));
+}
+
 /* --------------------------------------------------------------- 主入口 */
 
 /**
@@ -605,9 +659,9 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
   const catalog = catalogForMode(spec.id);
 
   // ————————————————————————————————————————————————————————————
-  // 5 注互不重叠：used = 已用掉的号码，后面每一注都把它作为硬性排除项。
-  // 这是整套方案里唯一真正影响概率的部分：5 注合起来覆盖 5×size 个不同号码，
-  // 「至少中 1 注」的概率才达到上限。
+  // #2~#5 四注精选之间互不重复：used = 精选已用掉的号码，后面每一注都把它作为硬性排除项。
+  // 这样「补位覆盖」才有意义，四注精选整体也能铺开面。
+  // （随机注 #1 不受此限制，见下）
   // ————————————————————————————————————————————————————————————
   const used = new Set();
   const picks = new Map();
@@ -626,19 +680,18 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     for (const n of nums) used.add(n);
   }
 
-  // #1 完全随机：在 4 注精选没用到的那 49 − 4×size 个号里等概率机选。
-  // 号码内容不影响概率（任何 size 个号全部落在 6 正码里的概率都相同），
-  // 但只从「剩下的号」里抽，才不会破坏 5 注互不重叠的覆盖面。
-  const restCount = ALL_NUMBERS.length - used.size;
+  // #1 完全随机：**纯 49 选 size**，等概率机选，不排除任何号码。
+  // 随机就应该是随机的：与精选撞号就撞号（任何 size 个号的命中概率都是同一个数）。
+  // 仍按期号 + 盐值定种，保证同一期可复现、可重摇。
   const rng = mulberry32(seedFor(year, periodNum, randomSalt));
-  picks.set('random', shuffledNumbers(rng, size, [...used]).sort((a, b) => a - b));
+  picks.set('random', shuffledNumbers(rng, size).sort((a, b) => a - b));
 
   const entries = catalog.map((meta) => ({
     ...meta,
     numbers: picks.get(meta.id) || [],
     killed: [],
     rationale: meta.id === 'random'
-      ? `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}从 4 注精选未用的 ${restCount} 个号里等概率机选`
+      ? `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}49 个号等概率机选（允许与精选重复）`
       : meta.description,
     seed: meta.id === 'random' ? seedFor(year, periodNum, randomSalt) : null
   }));
@@ -668,12 +721,10 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     };
   }
 
-  // 覆盖面：5 注并集的号码数 = 5×size（互不重叠）
+  // 覆盖面：按 5 注的**实际号码**算，随机注可能与精选重复，所以并集可能少于 5×size。
   const covered = new Set(entries.flatMap((e) => e.numbers));
   const perTicket = isSpecial ? size / 49 : binomial(6, size) / binomial(49, size);
-  const anyHit = isSpecial
-    ? covered.size / 49                    // 特码：25 个不同号 → 25/49，精确
-    : Math.min(1, 5 * perTicket);          // 直选：5 注互不重叠时 ≈ 5 × 单注概率
+  const anyHit = anyHitProbability(entries.map((e) => e.numbers), spec.id);
 
   return {
     target: { year, periodNum, period: String(periodNum).padStart(3, '0'), date },
@@ -683,8 +734,14 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     mode: spec.id,
     size,
     five: entries,
-    consensus: [], // 5 注互不重叠 → 不存在「多注共识号」
-    coverage: { distinct: covered.size, perTicket, anyHit, allBlank: 1 - anyHit },
+    consensus: [], // 取消共识号展示
+    coverage: {
+      distinct: covered.size,
+      overlap: size * 5 - covered.size, // 随机注与精选撞上的号码个数
+      perTicket,
+      anyHit,
+      allBlank: 1 - anyHit
+    },
     stats: features.stats,
     killedNumbers: [],
     lastSpecial: isSpecial ? (features.lastSpecial ?? null) : null
