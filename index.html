@@ -6,23 +6,23 @@
   <meta name="theme-color" content="#f6f8fb" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选7码、开奖核对、逐期历史回放（明确标注命中与注数）、数据同步（只追加不覆盖本机数据）" />
-  <title>六合彩 7码复式 · 三中三 / 四中四</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r5" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r5" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r5" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r5" />
+  <meta name="description" content="六合彩「三中三 / 四中四」直选每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选 3 / 4 码直选、开奖核对、逐期历史回放（明确标注命中与返奖）、数据同步（只追加不覆盖本机数据）" />
+  <title>六合彩 直选 · 三中三 / 四中四</title>
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r6" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r6" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r6" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r6" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.26-r5" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r6" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
-            六合彩 · 7码三中三 / 四中四
+            六合彩 · 三中三 / 四中四 直选
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r5</span>
+            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r6</span>
           </div>
           <div class="brand-subtitle" id="latestLine">仅核对前 6 个正码，特码不计入</div>
         </div>
@@ -46,7 +46,7 @@
       <p class="boot-error-msg" id="bootErrorMsg">脚本加载失败或初始化中断。</p>
       <p class="boot-error-hint">
         常见原因：浏览器里缓存了旧版 Service Worker / 旧版 JS，与新页面混用。
-        点「修复缓存」会清掉本工具的旧缓存并自动重载，<b>不会删除</b>你保存的本金赔率、自选号码、胆码和本地录入的开奖。
+        点「修复缓存」会清掉本工具的旧缓存并自动重载，<b>不会删除</b>你保存的本金赔率、自选号码和本地录入的开奖。
       </p>
       <div class="boot-error-actions">
         <button type="button" class="btn btn-primary" id="btnBootReload">重新加载</button>
@@ -69,6 +69,11 @@
         </div>
       </div>
 
+      <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="玩法切换">
+        <button type="button" class="seg-btn active" data-size="3" role="tab">选三 · 三中三（每注 3 个号）</button>
+        <button type="button" class="seg-btn" data-size="4" role="tab">选四 · 四中四（每注 4 个号）</button>
+      </div>
+
       <div class="card hero-card">
         <div class="hero-top">
           <div class="hero-tags">
@@ -76,8 +81,8 @@
             <span class="tag tag-gold" id="heroMeta">—</span>
           </div>
           <div class="hero-actions">
-            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">复制今日 5 注</button>
-            <button type="button" class="btn btn-sm" id="btnRerollRandom">重摇随机注</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">📋 一键复制今日 5 注</button>
+            <button type="button" class="btn btn-sm" id="btnRerollRandom">🎲 重摇第 1 注随机号码</button>
             <button type="button" class="btn btn-sm" id="btnResetRandom">恢复默认随机</button>
           </div>
         </div>
@@ -87,8 +92,8 @@
         <p class="hint-line explainer-line" id="explainerLine">
           怎么看这 5 注：①「🎲 随机基线」是纯随机对照，用来判断精选到底有没有跑赢随机；
           ② 其余 4 注是不同权重的精选（热势 / 遗漏回补 / 关联共振 / 三区波色均衡），彼此差异只在权重；
-          ③ 金圈号码是<b>共识号</b>（≥2 注精选同时选中），仅供参考，不代表更热。
-          彩票结果随机，任何策略都不能保证中奖。
+          ③ 金圈号码是<b>多策略共识号</b>（≥2 注精选同时选中），仅供参考，不代表更热。
+          直选口径：这一注的号码<b>全部</b>落在 6 个正码里才算命中；彩票结果随机，任何策略都不能保证中奖。
         </p>
 
         <div class="consensus-box" id="consensusBox"></div>
@@ -99,11 +104,11 @@
       </div>
     </section>
 
-    <!-- ② 自选 7 码 -->
+    <!-- ② 自选号码 -->
     <section id="picker" class="page-section">
       <div class="section-head">
-        <h2><span class="sec-bar"></span>自选 7 码</h2>
-        <span class="section-note">点球选号（满 7 个）· 点下方已选球可设为「胆」锁定</span>
+        <h2><span class="sec-bar"></span>自选号码</h2>
+        <span class="section-note" id="pickerNote">点球选号（选三 = 3 个号 / 选四 = 4 个号），选满即成 1 注直选</span>
       </div>
 
       <div class="card">
@@ -111,7 +116,7 @@
 
         <div class="picker-bar">
           <div class="picker-selected">
-            <span class="picker-count">已选 <b id="selCount">0</b>/7</span>
+            <span class="picker-count">已选 <b id="selCount">0/3</b></span>
             <div class="ball-row" id="selRow"></div>
           </div>
           <div class="picker-actions">
@@ -136,19 +141,6 @@
         </div>
         <div id="simResult"></div>
 
-        <details class="fold fold-inner" id="foldCombos">
-          <summary>展开全部组合（7码 = 35 注三中三 / 35 注四中四）</summary>
-          <div class="fold-body">
-            <div class="combo-head">
-              <div class="segmented-bar" id="comboTabs">
-                <button type="button" class="seg-btn active" data-play="pick3">三中三 35 注</button>
-                <button type="button" class="seg-btn" data-play="pick4">四中四 35 注</button>
-              </div>
-              <span class="hint-line" id="comboStats"></span>
-            </div>
-            <div class="combos-grid" id="comboGrid"></div>
-          </div>
-        </details>
       </div>
     </section>
 
@@ -207,7 +199,7 @@
               <option value="60">最近 60 期</option>
               <option value="120" selected>最近 120 期</option>
               <option value="365">最近 365 期</option>
-              <option value="all">全部（1757 期）</option>
+              <option value="all">全部（1759 期）</option>
               <option value="custom">自定义日期区间</option>
             </select>
             <input type="date" id="histFrom" class="input-ctrl input-sm" aria-label="起始日期" />
@@ -218,23 +210,15 @@
             <span class="filter-label">方案</span>
             <select id="histStrategy" class="select-ctrl select-sm" aria-label="回放方案">
               <option value="daily5">每日 5 注（1 随机 + 4 精选）</option>
-              <option value="custom">当前自选 7 码</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <span class="filter-label">投注</span>
-            <select id="histMode" class="select-ctrl select-sm" aria-label="投注方式">
-              <option value="compound7">7码复式（35注/期）</option>
-              <option value="featured5">精选5注（5注/期）</option>
+              <option value="custom">当前自选号码</option>
             </select>
           </div>
           <div class="filter-group">
             <span class="filter-label">命中</span>
             <div class="pill-tabs" id="histHitTabs">
               <button type="button" class="pill active" data-hit="all">全部</button>
-              <button type="button" class="pill" data-hit="pick3">仅三中三命中</button>
-              <button type="button" class="pill" data-hit="pick4">仅四中四命中</button>
-              <button type="button" class="pill" data-hit="miss">未中</button>
+              <button type="button" class="pill" data-hit="pick3">仅命中期</button>
+              <button type="button" class="pill" data-hit="miss">未中期</button>
             </div>
           </div>
           <div class="filter-group grow">
@@ -256,8 +240,7 @@
                 <th class="col-balls">当期 6 正码</th>
                 <th class="col-special">特码</th>
                 <th class="col-hit">5 注逐注命中</th>
-                <th class="col-res">三中三</th>
-                <th class="col-res">四中四</th>
+                <th class="col-res">本期中奖</th>
                 <th class="col-feat">详情</th>
               </tr>
             </thead>
@@ -333,7 +316,7 @@
             <label>四中四赔率（倍）<input type="number" id="cfgOdds4" class="input-ctrl" min="1" step="50" value="7500" /></label>
             <button type="button" class="btn btn-sm" id="btnResetCfg">恢复默认</button>
           </div>
-          <p class="hint-line">规则：仅核对前 6 个正码（平一～平六），特码不计入三中三 / 四中四。7 码中 k 个正码时，三中三中 C(k,3) 注、四中四中 C(k,4) 注。修改后历史回放里的金额会同步重算。</p>
+          <p class="hint-line">规则：仅核对前 6 个正码（平一～平六），特码不计入三中三 / 四中四。直选口径 = 这一注的号码<b>全部</b>落在 6 个正码里才算命中，命中 1 注返奖 = 本金 × 赔率。修改后历史回放里的金额会同步重算。</p>
         </div>
       </details>
 
@@ -345,18 +328,18 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r5</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r6</p>
           <p class="hint-line">
             「修复缓存」只清理<b>本工具</b>的 Cache Storage（标记 <code>mark6-pick3-pick4-*</code>）并重新加载页面，
             同域下其它工具的缓存与 Service Worker 不受影响；
-            <b>不会</b>删除 localStorage 里的本金赔率、自选号码、胆码与本地录入的开奖。
+            <b>不会</b>删除 localStorage 里的本金赔率、自选号码与本地录入的开奖。
             想彻底重置（连 Service Worker 一起注销）请点「彻底重置（注销 SW）」。
           </p>
         </div>
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.26-r5</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r6</b> ·
         本站为个人数据整理与娱乐参考工具，彩票结果随机，任何策略都不能保证中奖，请理性对待、量力而行。
       </p>
     </section>
@@ -364,7 +347,7 @@
 
   <!-- 手机端吸底复制条：不用滚到顶部也能一键复制今日 5 注 -->
   <div class="mobile-copy-bar" id="mobileCopyBar">
-    <button type="button" class="btn btn-sm btn-primary" id="btnCopyAllMobile">📋 复制今日 5 注</button>
+    <button type="button" class="btn btn-sm btn-primary" id="btnCopyAllMobile">📋 一键复制今日 5 注</button>
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
@@ -452,6 +435,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.26-r5"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r6"></script>
 </body>
 </html>

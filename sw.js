@@ -14,7 +14,7 @@
  *      由 tests/build-version.test.mjs 自动校验。
  */
 
-const BUILD_ID = '2026.10.26-r5';
+const BUILD_ID = '2026.10.26-r6';
 const CACHE_PREFIX = 'mark6-pick3-pick4-';
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 
@@ -33,6 +33,7 @@ const SHELL_FILES = [
   './src/statistics.js',
   './src/storage.js',
   './src/sync.js',
+  './src/copy.js',
   './src/app.js',
   './data/draws.js',
   './data/draws.json'

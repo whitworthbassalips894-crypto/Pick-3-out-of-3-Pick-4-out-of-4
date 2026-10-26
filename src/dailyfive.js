@@ -1,20 +1,24 @@
 /**
- * 「每日 5 注」选号引擎：1 注纯随机基线 + 4 注精选
+ * 「每日 5 注」直选引擎：1 注纯随机基线 + 4 注精选
  *
  * 模式参考 https://whitworthbassalips894-crypto.github.io/lottery-tool/ ：
  *   #1 🎲 随机基线   —— 按目标期号定种机选，纯随机对照，可重摇
  *   #2 🔥 热势恒强   —— EMA 短中周期活跃热码 + 上期重号 + 斜连邻号动量
  *   #3 🎯 遗漏回补   —— 个人历史遗漏 80%–98% 临界区 + 热码短休回补窗
- *   #4 🔗 关联共振   —— 近 180 期条件转移升幅 + 同尾/连号高频共现协同
+ *   #4 🔗 关联共振   —— 近 180 期条件转移升幅 + 同尾/两连号高频共现协同
  *   #5 ⚖️ 均衡配额   —— 贝叶斯频率 + 三区/波色/奇偶配额 + 等隔韵律 + 跨注去重
  *
+ * 玩法口径（直选）：
+ *   size = 3 → 三中三：每注 3 个号码，3 个号全部落在 6 个正码里才算中；
+ *   size = 4 → 四中四：每注 4 个号码，4 个号全部落在 6 个正码里才算中。
+ *
  * 严格无未来函数：第 T 期的 5 注只用严格早于 T 期的正码数据。
- * 确定性：同一期（同一重摇盐值）永远得到同一组 5 注。
+ * 确定性：同一期（同一重摇盐值、同一 size）永远得到同一组 5 注。
  */
 
 import { ALL_NUMBERS, getColorForNumber, getZodiacForNumber } from './constants.js';
-import { evaluate7CodeCompound, evaluateDirectTickets, normalizeNumbers } from './combinatorics.js';
-import { getPriorDraws, selectBalanced7Numbers, selectFeaturedCombinations } from './strategy.js';
+import { evaluateDirectTickets, normalizeNumbers } from './combinatorics.js';
+import { getPriorDraws, selectDirectNumbers } from './strategy.js';
 
 /** 5 注目录：第 1 注为纯随机基线，后 4 注为精选 */
 export const DAILY_FIVE_CATALOG = [
@@ -60,8 +64,16 @@ export const DAILY_FIVE_CATALOG = [
   }
 ];
 
-/** 随机理论期望：7 个号码 × 6 个正码 / 49 */
-export const RANDOM_EXPECTED_HITS = (7 * 6) / 49;
+/** 直选每注的号码个数：3 = 三中三，4 = 四中四 */
+export const DIRECT_SIZES = [3, 4];
+
+/** 随机理论期望命中号码数：size 个号码 × 6 个正码 / 49 */
+export function randomExpectedHits(size = 3) {
+  return (Number(size) * 6) / 49;
+}
+
+/** 兼容旧引用：默认按三中三（3 码）计 */
+export const RANDOM_EXPECTED_HITS = randomExpectedHits(3);
 
 /** 基础概率：每期开出 6 个正码，任一号码当期出现的概率 */
 const BASE_P = 6 / 49;
@@ -324,10 +336,11 @@ function buildScoreMaps(features, year, periodNum) {
 /* --------------------------------------------------------------- 主入口 */
 
 /**
- * 生成某期的「每日 5 注」
+ * 生成某期的「每日 5 注」直选
  * @param {object[]} allDraws 完整底库（降序）
  * @param {{ year?: number, periodNum?: number, date?: string }} [targetMeta]
- * @param {{ randomSalt?: number, pinnedNumbers?: number[] }} [options]
+ * @param {{ randomSalt?: number, size?: number, pinnedNumbers?: number[] }} [options]
+ *        size: 3 = 三中三（每注 3 个号），4 = 四中四（每注 4 个号）
  */
 export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) {
   const latest = allDraws[0] || { year: 2026, periodNum: 296, date: '2026-10-23' };
@@ -335,21 +348,18 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
   const periodNum = Number(targetMeta.periodNum || (latest.periodNum || 0) + 1);
   const date = targetMeta.date || latest.date || `${year}-10-24`;
   const randomSalt = Number(options.randomSalt || 0);
+  const size = Number(options.size) === 4 ? 4 : 3;
 
   const priorDraws = getPriorDraws(allDraws, { year, periodNum });
   const features = computeDailyFiveFeatures(priorDraws, { year, periodNum, date });
   const scoreMaps = buildScoreMaps(features, year, periodNum);
-  const pinned = normalizeNumbers(options.pinnedNumbers || [], { sort: true, maxCount: 6 });
+  const pinned = normalizeNumbers(options.pinnedNumbers || [], { sort: true, maxCount: size });
 
   const entries = [];
 
-  // #1 随机基线
+  // #1 随机基线：按期号定种机选 size 个号（纯随机对照）
   const rng = mulberry32(seedFor(year, periodNum, randomSalt));
-  const randomNums = shuffledNumbers(rng, 7);
-  // 随机注的「精选 5 注」也用随机分数挑选，避免退化成字典序前 5 组
-  const randomMap = {};
-  for (const n of randomNums) randomMap[n] = deterministicJitter(year, periodNum, n, 97);
-  const randomFeatured = selectFeaturedCombinations(randomNums, randomMap, features.pairCount);
+  const randomNums = shuffledNumbers(rng, size);
   entries.push({
     id: 'random',
     code: '#1',
@@ -357,8 +367,6 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     icon: '🎲',
     random: true,
     numbers: randomNums,
-    featuredPick3: randomFeatured.top5Pick3,
-    featuredPick4: randomFeatured.top5Pick4,
     rationale: randomSalt > 0 ? `已重摇第 ${randomSalt} 次（按期号定种）` : '按目标期号定种机选的纯随机对照',
     seed: seedFor(year, periodNum, randomSalt)
   });
@@ -370,21 +378,19 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     const id = order[i];
     const meta = DAILY_FIVE_CATALOG.find((m) => m.id === id);
     const scoreMap = scoreMaps[id];
-    const seven = selectBalanced7Numbers(scoreMap, features, {
+    const nums = selectDirectNumbers(scoreMap, features, {
+      size,
       pinned: i === 0 ? pinned : [],
       quota: id === 'balanced_quota',
       usedElsewhere: i === order.length - 1 ? usedElsewhere : new Set()
     });
-    const featured = selectFeaturedCombinations(seven, scoreMap, features.pairCount);
     entries.push({
       ...meta,
-      numbers: seven,
-      featuredPick3: featured.top5Pick3,
-      featuredPick4: featured.top5Pick4,
+      numbers: nums,
       rationale: meta.description,
       seed: null
     });
-    for (const n of seven) usedElsewhere.add(n);
+    for (const n of nums) usedElsewhere.add(n);
   }
 
   const ordered = [entries[0], entries[1], entries[2], entries[3], entries[4]];
@@ -399,13 +405,13 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
   // 每注的形态统计
   for (const e of ordered) {
     const st = features.stats;
-    // 热/温/冷必须互斥：先判热码，未命中热码条件的才算冷码，否则 warm 会变成负数
     const hotList = e.numbers.filter((n) => st[n].freq30 >= 5 || st[n].freq15 >= 3);
     const hot = hotList.length;
     const cold = e.numbers.filter((n) => !hotList.includes(n) && (st[n].omission >= 10 || st[n].freq30 <= 2)).length;
+    const odd = e.numbers.filter((n) => st[n].odd).length;
     e.shape = {
       hot,
-      warm: 7 - hot - cold,
+      warm: e.numbers.length - hot - cold,
       cold,
       red: e.numbers.filter((n) => st[n].color === 'red').length,
       blue: e.numbers.filter((n) => st[n].color === 'blue').length,
@@ -413,8 +419,8 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
       zone1: e.numbers.filter((n) => st[n].zone === 1).length,
       zone2: e.numbers.filter((n) => st[n].zone === 2).length,
       zone3: e.numbers.filter((n) => st[n].zone === 3).length,
-      odd: e.numbers.filter((n) => st[n].odd).length,
-      even: 7 - e.numbers.filter((n) => st[n].odd).length,
+      odd,
+      even: e.numbers.length - odd,
       big: e.numbers.filter((n) => n >= 25).length,
       small: e.numbers.filter((n) => n <= 24).length,
       sum: e.numbers.reduce((a, b) => a + b, 0)
@@ -426,6 +432,7 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     priorSampleCount: priorDraws.length,
     featureWindow: features.sampleSize,
     randomSalt,
+    size,
     five: ordered,
     consensus,
     stats: features.stats
@@ -435,21 +442,21 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
 /* -------------------------------------------------------------- 逐期回放 */
 
 /**
- * 逐期生成 5 注回放记录（无未来函数）
+ * 逐期生成 5 注直选回放记录（无未来函数）
  * @param {object[]} allDraws
  * @param {object[]} targets
- * @param {{ stake?: number, odds3?: number, odds4?: number, randomSalt?: number }} [options]
+ * @param {{ stake?: number, odds3?: number, odds4?: number, randomSalt?: number, size?: number }} [options]
  */
 export function buildDailyFiveRecords(allDraws = [], targets = [], options = {}) {
   const { stake = 10, odds3 = 650, odds4 = 7500, randomSalt = 0 } = options;
+  const size = Number(options.size) === 4 ? 4 : 3;
   const records = [];
   for (const draw of targets) {
     if (!draw) continue;
-    const plan = generateDailyFive(allDraws, { year: draw.year, periodNum: draw.periodNum, date: draw.date }, { randomSalt });
+    const plan = generateDailyFive(allDraws, { year: draw.year, periodNum: draw.periodNum, date: draw.date }, { randomSalt, size });
     const five = plan.five.map((e) => {
-      const compoundEval = evaluate7CodeCompound(e.numbers, draw, { stake, odds3, odds4 });
-      const direct3Eval = evaluateDirectTickets(e.featuredPick3, draw, { stake, odds3, odds4, targetSize: 3 });
-      const direct4Eval = evaluateDirectTickets(e.featuredPick4, draw, { stake, odds3, odds4, targetSize: 4 });
+      const ev = evaluateDirectTickets([e.numbers], draw, { stake, odds3, odds4, targetSize: size });
+      const detail = ev.details[0] || { hitNums: [], hitCount: 0, isWin: false, payout: 0 };
       return {
         id: e.id,
         code: e.code,
@@ -457,62 +464,53 @@ export function buildDailyFiveRecords(allDraws = [], targets = [], options = {})
         icon: e.icon,
         random: !!e.random,
         numbers: e.numbers,
-        featuredPick3: e.featuredPick3,
-        featuredPick4: e.featuredPick4,
-        matchedNormals: compoundEval.matchedNormals,
-        matchedNormalCount: compoundEval.matchedNormalCount,
-        compoundEval,
-        direct3Eval,
-        direct4Eval
+        hitNums: detail.hitNums,
+        hitCount: detail.hitCount,
+        isWin: detail.isWin,
+        payout: detail.payout,
+        matchedNormals: detail.hitNums,
+        matchedNormalCount: detail.hitCount
       };
     });
-    records.push({ draw, five, consensus: plan.consensus });
+    records.push({ draw, five, consensus: plan.consensus, size });
   }
   return records;
 }
 
 /**
- * 逐期生成「当前自选 7 码」的单注回放记录（与 buildDailyFiveRecords 结构一致，便于统一渲染）
+ * 逐期生成「当前自选」的单注回放记录（与 buildDailyFiveRecords 结构一致，便于统一渲染）
  * @param {object[]} allDraws
  * @param {object[]} targets
- * @param {{ stake?: number, odds3?: number, odds4?: number, customNumbers?: number[] }} [options]
+ * @param {{ stake?: number, odds3?: number, odds4?: number, customNumbers?: number[], size?: number }} [options]
  */
 export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
   const { stake = 10, odds3 = 650, odds4 = 7500 } = options;
-  const picks = normalizeNumbers(options.customNumbers || [], { sort: true, maxCount: 7 });
-  if (picks.length < 4) return [];
+  const size = Number(options.size) === 4 ? 4 : 3;
+  const picks = normalizeNumbers(options.customNumbers || [], { sort: true, maxCount: size });
+  if (picks.length !== size) return [];
 
   const records = [];
   for (const draw of targets) {
     if (!draw) continue;
-    const prior = getPriorDraws(allDraws, { year: draw.year, periodNum: draw.periodNum });
-    const features = computeDailyFiveFeatures(prior, { year: draw.year, periodNum: draw.periodNum, date: draw.date });
-    // 自选号码没有策略分数，用均匀分 + 共现协同挑 5+5
-    const uniform = {};
-    for (const n of picks) uniform[n] = 1;
-    const featured = selectFeaturedCombinations(picks, uniform, features.pairCount);
-
-    const compoundEval = evaluate7CodeCompound(picks, draw, { stake, odds3, odds4 });
-    const direct3Eval = evaluateDirectTickets(featured.top5Pick3, draw, { stake, odds3, odds4, targetSize: 3 });
-    const direct4Eval = evaluateDirectTickets(featured.top5Pick4, draw, { stake, odds3, odds4, targetSize: 4 });
-
+    const ev = evaluateDirectTickets([picks], draw, { stake, odds3, odds4, targetSize: size });
+    const detail = ev.details[0] || { hitNums: [], hitCount: 0, isWin: false, payout: 0 };
     records.push({
       draw,
       consensus: [],
+      size,
       five: [{
         id: 'custom',
         code: '自选',
-        name: '当前自选 7 码',
+        name: `当前自选 ${size} 码`,
         icon: '✍️',
         random: false,
         numbers: picks,
-        featuredPick3: featured.top5Pick3,
-        featuredPick4: featured.top5Pick4,
-        matchedNormals: compoundEval.matchedNormals,
-        matchedNormalCount: compoundEval.matchedNormalCount,
-        compoundEval,
-        direct3Eval,
-        direct4Eval
+        hitNums: detail.hitNums,
+        hitCount: detail.hitCount,
+        isWin: detail.isWin,
+        payout: detail.payout,
+        matchedNormals: detail.hitNums,
+        matchedNormalCount: detail.hitCount
       }]
     });
   }
@@ -520,20 +518,24 @@ export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
 }
 
 /**
- * 汇总 5 注的表现（逐注命中球数、命中期数、成本、返奖、ROI）
+ * 汇总 5 注的表现（直选口径）
+ *
+ * 直选口径：每注就是 1 注投注，命中 = 该注号码全部落在 6 个正码里；
+ * 成本 = 期数 × 单注本金；返奖 = 命中期数 × 单注本金 × 赔率。
+ *
+ * @param {object[]} records buildDailyFiveRecords / buildCustomRecords 的输出
+ * @param {{ stake?: number, odds3?: number, odds4?: number, size?: number }} [options]
  */
 export function summarizeDailyFive(records = [], options = {}) {
-  const { stake = 10, odds3 = 650, odds4 = 7500, betMode = 'compound7' } = options;
+  const { stake = 10, odds3 = 650, odds4 = 7500 } = options;
+  const size = Number(options.size) === 4 ? 4 : 3;
+  const odds = size === 4 ? odds4 : odds3;
 
-  // 汇总对象：固定的 5 注 + 记录里出现的其它方案（例如「当前自选 7 码」）
   const catalog = DAILY_FIVE_CATALOG.map((m) => ({
     ...m,
     periods: 0,
     hitSum: 0,
-    hit3Periods: 0,
-    hit4Periods: 0,
-    winBets3: 0,
-    winBets4: 0,
+    winPeriods: 0,
     cost: 0,
     payout: 0
   }));
@@ -548,10 +550,7 @@ export function summarizeDailyFive(records = [], options = {}) {
       random: !!e.random,
       periods: 0,
       hitSum: 0,
-      hit3Periods: 0,
-      hit4Periods: 0,
-      winBets3: 0,
-      winBets4: 0,
+      winPeriods: 0,
       cost: 0,
       payout: 0
     };
@@ -564,15 +563,10 @@ export function summarizeDailyFive(records = [], options = {}) {
     for (const e of rec.five) {
       const agg = ensure(e);
       agg.periods++;
-      agg.hitSum += e.matchedNormalCount;
-      const p3 = betMode === 'featured5' ? e.direct3Eval : e.compoundEval.pick3;
-      const p4 = betMode === 'featured5' ? e.direct4Eval : e.compoundEval.pick4;
-      if (p3.winCount > 0) agg.hit3Periods++;
-      if (p4.winCount > 0) agg.hit4Periods++;
-      agg.winBets3 += p3.winCount;
-      agg.winBets4 += p4.winCount;
-      agg.cost += (p3.totalBets + p4.totalBets) * stake;
-      agg.payout += p3.winCount * stake * odds3 + p4.winCount * stake * odds4;
+      agg.hitSum += e.hitCount || 0;
+      if (e.isWin) agg.winPeriods++;
+      agg.cost += stake;
+      agg.payout += e.payout || 0;
     }
   }
 
@@ -580,20 +574,20 @@ export function summarizeDailyFive(records = [], options = {}) {
     agg.avgHits = agg.periods ? Number((agg.hitSum / agg.periods).toFixed(3)) : 0;
     agg.net = agg.payout - agg.cost;
     agg.roi = agg.cost > 0 ? Number(((agg.net / agg.cost) * 100).toFixed(2)) : 0;
-    agg.hit3Rate = agg.periods ? Number(((agg.hit3Periods / agg.periods) * 100).toFixed(2)) : 0;
-    agg.hit4Rate = agg.periods ? Number(((agg.hit4Periods / agg.periods) * 100).toFixed(2)) : 0;
+    agg.winRate = agg.periods ? Number(((agg.winPeriods / agg.periods) * 100).toFixed(3)) : 0;
   }
 
   const totalCost = catalog.reduce((a, c) => a + c.cost, 0);
   const totalPayout = catalog.reduce((a, c) => a + c.payout, 0);
   return {
-    betMode,
+    size,
     stake,
     odds3,
     odds4,
+    odds,
     periods: records.length,
     catalog,
-    expectedHits: Number(RANDOM_EXPECTED_HITS.toFixed(3)),
+    expectedHits: Number(randomExpectedHits(size).toFixed(3)),
     totalCost,
     totalPayout,
     totalNet: totalPayout - totalCost,

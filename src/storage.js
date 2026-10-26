@@ -156,13 +156,21 @@ export function sanitizeConfig(raw, defaults) {
   out.stake = num(raw.stake, defaults.stake, 1, 1_000_000);
   out.odds3 = num(raw.odds3, defaults.odds3, 1, 1_000_000);
   out.odds4 = num(raw.odds4, defaults.odds4, 1, 1_000_000);
+  // 直选玩法：3 = 三中三，4 = 四中四
+  const size = Number(raw.targetSize);
+  if (size !== 3 && size !== 4) {
+    if (raw.targetSize != null) repaired = true;
+    out.targetSize = defaults.targetSize === 4 ? 4 : 3;
+  } else {
+    out.targetSize = size;
+  }
   if (raw.hitRule) out.hitRule = String(raw.hitRule);
   if (raw.remoteSourceUrl) out.remoteSourceUrl = String(raw.remoteSourceUrl);
   return { config: out, repaired };
 }
 
 /**
- * 清洗自选号码：只保留 1~49 的整数、去重、限制最多 7 个
+ * 清洗自选号码：只保留 1~49 的整数、去重、限制最多 4 个（直选最大 4 码）
  * @param {any} raw
  * @returns {{picks: number[], pinned: number[], repaired: boolean}}
  */
@@ -181,6 +189,7 @@ export function sanitizePicks(raw) {
     }
     return out;
   };
+  // 存储层仍保留 7 个号的上限（不丢老用户数据）；直选玩法在应用层按 3 / 4 个号收敛
   const picks = toNums(raw.picks ?? raw.numbers ?? raw.selection).sort((a, b) => a - b).slice(0, 7);
   const pinned = toNums(raw.pinned ?? raw.dan ?? raw.locked)
     .filter((n) => picks.includes(n))

@@ -4,7 +4,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import INITIAL_DB from '../data/draws.js';
-import { classifyHitCount, evaluate7CodeCompound } from '../src/combinatorics.js';
 import { buildCustomRecords, buildDailyFiveRecords, summarizeDailyFive } from '../src/dailyfive.js';
 
 const ALL = INITIAL_DB.draws;
@@ -57,95 +56,67 @@ test('无未来函数：第 T 期推荐不依赖 T 期及之后的任何数据',
   }
 });
 
-test('回归样例 2026-287：命中口径正确（特码不计入，三中三 = C(k,3) 注）', () => {
+test('回归样例 2026-287：直选命中口径正确（特码不计入，号码全中才算中）', () => {
   const target = pick('2026-287');
   assert.deepEqual(target.numbers, [19, 47, 38, 35, 6, 17]);
   assert.equal(target.special, 8);
 
-  const rec = buildDailyFiveRecords(ALL, [target])[0];
-  for (const e of rec.five) {
-    assert.ok(!e.matchedNormals.includes(target.special), '特码绝不能计入命中');
-    const cls = classifyHitCount(e.matchedNormalCount);
-    assert.equal(e.compoundEval.pick3.winCount, cls.pick3.betCount);
-    assert.equal(e.compoundEval.pick4.winCount, cls.pick4.betCount);
-  }
-});
-
-test('命中分类与注数：k=0..6 时三中三/四中四结论与 C(k,3)/C(k,4) 完全一致', () => {
-  const expected3 = [0, 0, 0, 1, 4, 10, 20];
-  const expected4 = [0, 0, 0, 0, 1, 5, 15];
-  for (let k = 0; k <= 6; k++) {
-    const cls = classifyHitCount(k);
-    assert.equal(cls.k, k);
-    assert.equal(cls.pick3.betCount, expected3[k]);
-    assert.equal(cls.pick4.betCount, expected4[k]);
-    assert.equal(cls.pick3.isHit, k >= 3);
-    assert.equal(cls.pick4.isHit, k >= 4);
-
-    // 与引擎实际展开的组合数量互相印证
-    const picks = [1, 2, 3, 4, 5, 6, 7];
-    const hitPart = picks.slice(0, k);
-    const missPart = [20, 21, 22, 23, 24, 25].slice(0, 6 - k);
-    const ev = evaluate7CodeCompound(picks, { numbers: [...hitPart, ...missPart], special: 49 }, { stake: 10 });
-    assert.equal(ev.pick3.winCount, cls.pick3.betCount);
-    assert.equal(ev.pick4.winCount, cls.pick4.betCount);
+  for (const size of [3, 4]) {
+    const rec = buildDailyFiveRecords(ALL, [target], { size })[0];
+    for (const e of rec.five) {
+      assert.ok(!e.matchedNormals.includes(target.special), '特码绝不能计入命中');
+      assert.equal(e.hitCount, e.numbers.filter((n) => target.numbers.slice(0, 6).includes(n)).length);
+      // 直选：这一注号码全部落在 6 个正码里才算命中
+      assert.equal(e.isWin, e.hitCount === size);
+      assert.equal(e.payout, e.isWin ? 10 * (size === 4 ? 7500 : 650) : 0);
+    }
   }
 });
 
 test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字）', () => {
   const targets = ALL.slice(0, 120);
-  const records = buildDailyFiveRecords(ALL, targets, { stake: 10, odds3: 650, odds4: 7500 });
-  const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, betMode: 'compound7' });
+  const records = buildDailyFiveRecords(ALL, targets, { stake: 10, odds3: 650, odds4: 7500, size: 3 });
+  const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, size: 3 });
 
   assert.equal(summary.periods, records.length);
-  assert.equal(summary.totalCost, records.length * 5 * 70 * 10);
+  // 直选：5 注 × 1 注/期 × 本金
+  assert.equal(summary.totalCost, records.length * 5 * 10);
 
   for (const agg of summary.catalog) {
-    const manual3 = records.reduce((s, r) => {
+    const manualWins = records.reduce((s, r) => {
       const e = r.five.find((x) => x.id === agg.id);
-      return s + e.compoundEval.pick3.winCount;
+      return s + (e.isWin ? 1 : 0);
     }, 0);
-    assert.equal(agg.winBets3, manual3);
-    const manual4 = records.reduce((s, r) => {
-      const e = r.five.find((x) => x.id === agg.id);
-      return s + e.compoundEval.pick4.winCount;
-    }, 0);
-    assert.equal(agg.winBets4, manual4);
-    assert.equal(agg.hit3Periods, records.filter((r) => {
-      const e = r.five.find((x) => x.id === agg.id);
-      return e.compoundEval.pick3.winCount > 0;
-    }).length);
-    assert.equal(agg.hit4Periods, records.filter((r) => {
-      const e = r.five.find((x) => x.id === agg.id);
-      return e.compoundEval.pick4.winCount > 0;
-    }).length);
+    assert.equal(agg.winPeriods, manualWins);
+    assert.equal(agg.payout, manualWins * 10 * 650);
+    assert.equal(agg.cost, records.length * 10);
     assert.equal(agg.net, agg.payout - agg.cost);
   }
   assert.equal(summary.totalNet, summary.totalPayout - summary.totalCost);
 });
 
-test('精选 5 注模式：统计口径切换到直选注单（5 注/期）', () => {
+test('选四直选口径：成本与返奖都按四中四赔率 7500 计', () => {
   const targets = ALL.slice(0, 60);
-  const records = buildDailyFiveRecords(ALL, targets, { stake: 10, odds3: 650, odds4: 7500 });
-  const featured = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, betMode: 'featured5' });
-  for (const agg of featured.catalog) {
-    assert.equal(agg.cost, targets.length * 10 * 10);
-    assert.ok(agg.winBets3 <= targets.length * 5);
-    assert.ok(agg.winBets4 <= targets.length * 5);
+  const records = buildDailyFiveRecords(ALL, targets, { stake: 10, odds3: 650, odds4: 7500, size: 4 });
+  const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, size: 4 });
+  assert.equal(summary.totalCost, targets.length * 5 * 10);
+  for (const agg of summary.catalog) {
+    assert.equal(agg.payout, agg.winPeriods * 10 * 7500);
   }
 });
 
-test('自选 7 码回放：每期都用同一组号码，且不偷看当期数据', () => {
-  const custom = [6, 26, 29, 32, 36, 38, 47];
+test('自选直选回放：每期都用同一组号码，且不偷看当期数据', () => {
+  const custom = [6, 26, 29];
   const targets = ALL.slice(0, 30);
-  const records = buildCustomRecords(ALL, targets, { customNumbers: custom, stake: 10 });
+  const records = buildCustomRecords(ALL, targets, { customNumbers: custom, stake: 10, size: 3 });
   for (const r of records) {
     assert.deepEqual(r.five[0].numbers, custom);
     assert.equal(r.five[0].id, 'custom');
   }
   // 汇总时也要能统计这个自定义方案
-  const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, betMode: 'compound7' });
+  const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, size: 3 });
   const customAgg = summary.catalog.find((c) => c.id === 'custom');
   assert.ok(customAgg);
   assert.equal(customAgg.periods, targets.length);
+  assert.equal(customAgg.cost, targets.length * 10);
 });
