@@ -81,3 +81,27 @@ test('空输入不会抛错', () => {
   assert.equal(formatFiveTickets([]), '');
   assert.equal(formatSingleTicket(undefined), '');
 });
+
+test('特码玩法：每注 5 个号码，5 注共 5 行顿号分隔', () => {
+  const tickets = [
+    [22, 27, 49, 6, 25],
+    [2, 5, 8, 17, 25],
+    [9, 10, 23, 24, 39],
+    [5, 8, 23, 39, 48],
+    [5, 8, 19, 25, 40]
+  ];
+  const text = formatTickets(tickets);
+  const lines = text.split('\n');
+  assert.equal(lines.length, 5);
+  assert.equal(lines[0], '22、27、49、06、25');
+  assert.equal(lines[4], '05、08、19、25、40');
+  assert.ok(!CN_AND_WORDS.test(text), '复制内容只能是号码');
+  for (const line of lines) assert.equal(line.split('、').length, 5);
+});
+
+test('特码单注复制只有一行 5 个号码', () => {
+  const text = formatSingleTicket([22, 27, 49, 6, 25]);
+  assert.equal(text, '22、27、49、06、25');
+  assert.equal(text.split('\n').length, 1);
+  assert.ok(!CN_AND_WORDS.test(text));
+});

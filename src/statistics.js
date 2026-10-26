@@ -44,17 +44,54 @@ export function formatPercent(p, digits = 2) {
 /* ------------------------------------------------------------------ 直选 */
 
 /**
+ * 特码基线：每注 5 个号码，开奖的最后一个号码（特码）落在这 5 个号里就算命中
+ *
+ *   P(中) = 5 / 49 ≈ 10.204%
+ * 理论公平赔率 = 49 / 5 = 9.8 倍
+ *
+ * 参考：传统「押 1 个号」的特码赔率约 48 倍（EV = 48/49 ≈ 98%）；
+ * 5 个号一注要达到同样的返还水平，赔率应为 9.6 倍（EV 同样是 48/49）。
+ */
+export function specialBaseline() {
+  const population = 49;
+  const size = 5;
+  const hitProb = size / population;
+  return {
+    size,
+    population,
+    draws: 1,
+    marked: size,
+    playMode: 'special',
+    /** 单注命中概率 */
+    hitProb,
+    /** 理论公平赔率（1 : 1 的公平值） */
+    fairOdds: population / size,
+    /** 每注平均覆盖的号码数（与命中概率同值） */
+    expectedHits: hitProb,
+    /** 每期 5 注里至少中 1 注的概率（用于对照） */
+    anyHitProb: 1 - (1 - hitProb) ** 5
+  };
+}
+
+/**
  * 直选基线：三中三（选 3 个号）/ 四中四（选 4 个号）
  *
  * 玩法：49 选 size，开奖开出 6 个正码（平一～平六），命中 = size 个号全部落在正码里。
- * 期望回报率 = 赔率 × 命中概率（直选长期必然低于 1，页面必须如实呈现）。
+ *   P(中3) = C(6,3) / C(49,3) = 20 / 18424 ≈ 0.1086%
+ *   P(中4) = C(6,4) / C(49,4) = 15 / 211876 ≈ 0.00708%
+ * 理论公平赔率 = C(49,size) / C(6,size) ≈ 921 倍（选三）/ 14125 倍（选四）
  *
- * @param {number} size 3 = 三中三，4 = 四中四
+ * 期望回报率 = 赔率 × 命中概率（页面必须如实呈现，不能美化亏损）。
+ *
+ * @param {number|string} mode 3 / 4（号码个数）或 'special' / 'pick3' / 'pick4'（玩法）
  */
-export function directBaseline(size = 3) {
+export function directBaseline(mode = 3) {
+  const raw = String(mode ?? '').trim();
+  if (raw === 'special' || raw === '特码' || raw === 5 || raw === '5') return specialBaseline();
+
   const population = 49;
   const draws = 6;
-  const marked = Math.trunc(Number(size)) === 4 ? 4 : 3;
+  const marked = raw === 'pick4' || raw === 4 || raw === '4' ? 4 : 3;
   const hitProb = comb(draws, marked) / comb(population, marked);
   const fairOdds = comb(population, marked) / comb(draws, marked);
   return {
@@ -62,6 +99,7 @@ export function directBaseline(size = 3) {
     population,
     draws,
     marked,
+    playMode: marked === 4 ? 'pick4' : 'pick3',
     /** 单注命中概率 */
     hitProb,
     /** 理论公平赔率（1 : 1 的公平值） */
@@ -77,15 +115,17 @@ export function directBaseline(size = 3) {
 export const DIRECT_BASELINE_3 = directBaseline(3);
 /** 四中四直选基线 */
 export const DIRECT_BASELINE_4 = directBaseline(4);
+/** 特码基线 */
+export const SPECIAL_BASELINE = specialBaseline();
 
 /**
  * 按当前赔率计算期望回报率（赔率 × 命中概率）
- * @param {number} size
+ * @param {number|string} mode 3 / 4 或 'special' / 'pick3' / 'pick4'
  * @param {number} odds
- * @returns {number} 0~1 之间的期望回报比例（1 = 公平）
+ * @returns {number} 期望回报比例（1 = 公平；> 1 说明赔率设得比公平值还高）
  */
-export function expectedReturnRate(size = 3, odds = 650) {
-  const base = directBaseline(size);
+export function expectedReturnRate(mode = 3, odds = 650) {
+  const base = directBaseline(mode);
   const o = Number(odds);
   if (!Number.isFinite(o) || o <= 0) return 0;
   return base.hitProb * o;

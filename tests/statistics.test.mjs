@@ -5,6 +5,7 @@ import {
   DIRECT_BASELINE_4,
   comb,
   directBaseline,
+  specialBaseline,
   expectedReturnRate,
   formatPercent
 } from '../src/statistics.js';
@@ -63,4 +64,37 @@ test('formatPercent 输出百分比字符串', () => {
   assert.equal(formatPercent(0.0010857), '0.11%');
   assert.equal(formatPercent(0.5, 1), '50.0%');
   assert.equal(formatPercent(NaN), '—');
+});
+
+test('特码基线：P = 5/49 ≈ 10.204%，公平赔率 9.8 倍', () => {
+  const b = specialBaseline();
+  assert.equal(b.size, 5);
+  assert.ok(Math.abs(b.hitProb - 5 / 49) < 1e-12);
+  assert.ok(Math.abs(b.hitProb - 0.10204081632653061) < 1e-12);
+  assert.ok(Math.abs(b.fairOdds - 9.8) < 1e-9);
+});
+
+test('特码期望回报率：48 倍 ⇒ ≈489.8%（如实展示冲突），9.6 倍 ⇒ ≈98%，9.8 倍 ⇒ 100%', () => {
+  const ev48 = expectedReturnRate('special', 48);
+  assert.ok(Math.abs(ev48 - 48 * (5 / 49)) < 1e-12);
+  assert.ok(Math.abs(ev48 - 4.897959183673469) < 1e-9, `实际 ${ev48}`);
+  assert.ok(ev48 > 1, '48 倍的期望回报率必然高于 100%，页面要显式提示');
+
+  const ev96 = expectedReturnRate('special', 9.6);
+  assert.ok(Math.abs(ev96 - 0.9795918367346939) < 1e-9);
+
+  const ev98 = expectedReturnRate('special', 9.8);
+  assert.ok(Math.abs(ev98 - 1) < 1e-9, '公平赔率下期望回报率 = 1');
+
+  // 传 size（3 / 4 / 5）也能取到对应口径，兼容旧调用
+  assert.ok(Math.abs(expectedReturnRate(5, 9.8) - 1) < 1e-9);
+  assert.ok(Math.abs(expectedReturnRate(3, 650) - 650 * (20 / 18424)) < 1e-12);
+});
+
+test('directBaseline 特码口径（size=5）返回 10.204% 与 9.8 倍公平赔率', () => {
+  const b = directBaseline('special');
+  assert.equal(b.size, 5);
+  assert.ok(Math.abs(b.hitProb - 5 / 49) < 1e-12);
+  assert.ok(Math.abs(b.fairOdds - 9.8) < 1e-9);
+  assert.ok(Math.abs(directBaseline(5).fairOdds - 9.8) < 1e-9);
 });

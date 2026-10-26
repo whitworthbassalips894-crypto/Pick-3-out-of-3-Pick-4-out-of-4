@@ -172,10 +172,21 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   const html = read('index.html');
   // 玩法切换
   assert.ok(html.includes('id="modeSwitch"'), '必须有玩法切换控件');
-  assert.ok(html.includes('data-size="3"'), '必须能切到选三');
-  assert.ok(html.includes('data-size="4"'), '必须能切到选四');
+  assert.ok(html.includes('data-mode="special"'), '必须能切到特码');
+  assert.ok(html.includes('data-mode="pick3"'), '必须能切到选三');
+  assert.ok(html.includes('data-mode="pick4"'), '必须能切到选四');
+  assert.ok(html.includes('特码（每注 5 个号）'), '要有特码玩法标签');
   assert.ok(html.includes('选三 · 三中三'), '要有选三玩法标签');
   assert.ok(html.includes('选四 · 四中四'), '要有选四玩法标签');
+  // 顺序：特码 → 选三 → 选四
+  assert.ok(
+    html.indexOf('data-mode="special"') < html.indexOf('data-mode="pick3"')
+    && html.indexOf('data-mode="pick3"') < html.indexOf('data-mode="pick4"'),
+    '玩法顺序必须是 特码 → 选三 → 选四'
+  );
+  // 特码赔率输入
+  assert.ok(html.includes('id="cfgOddsSpecial"'), '必须有特码赔率输入');
+  assert.ok(html.includes('id="cfgOddsNote"'), '必须有赔率期望回报率提示位');
   // 旧版复式结构必须彻底移除
   for (const gone of ['id="comboGrid"', 'id="comboTabs"', 'id="foldCombos"', 'id="histMode"', 'id="pinnedPicks"']) {
     assert.ok(!html.includes(gone), `旧结构 ${gone} 必须移除`);

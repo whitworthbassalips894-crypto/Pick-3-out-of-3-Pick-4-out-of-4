@@ -95,14 +95,35 @@ test('旧版本键名可以迁移到规范键名，且不删除旧数据', () =>
   assert.ok(storage.getItem('mark6_pick3_config') != null);
 });
 
-test('配置里的玩法（targetSize）只接受 3 或 4，其它值回落默认', () => {
+test('配置里的玩法（playMode）只接受 special / pick3 / pick4，其它值回落默认', () => {
   const cfg = (raw) => sanitizeConfig(raw, DEFAULT_CONFIG).config;
-  assert.equal(cfg({ targetSize: 4 }).targetSize, 4);
-  assert.equal(cfg({ targetSize: 3 }).targetSize, 3);
-  assert.equal(cfg({ targetSize: 7 }).targetSize, DEFAULT_CONFIG.targetSize);
-  assert.equal(cfg({ targetSize: '四' }).targetSize, DEFAULT_CONFIG.targetSize);
-  assert.equal(cfg({}).targetSize, DEFAULT_CONFIG.targetSize);
-  assert.equal(DEFAULT_CONFIG.targetSize, 3);
+  assert.equal(cfg({ playMode: 'special' }).playMode, 'special');
+  assert.equal(cfg({ playMode: 'pick3' }).playMode, 'pick3');
+  assert.equal(cfg({ playMode: 'pick4' }).playMode, 'pick4');
+  assert.equal(cfg({ playMode: 'replay' }).playMode, DEFAULT_CONFIG.playMode);
+  assert.equal(cfg({ playMode: '四' }).playMode, DEFAULT_CONFIG.playMode);
+  assert.equal(cfg({}).playMode, DEFAULT_CONFIG.playMode);
+  assert.equal(DEFAULT_CONFIG.playMode, 'special');
+});
+
+test('旧版 targetSize（3 / 4）会迁移成 playMode', () => {
+  const cfg = (raw) => sanitizeConfig(raw, DEFAULT_CONFIG).config;
+  assert.equal(cfg({ targetSize: 3 }).playMode, 'pick3');
+  assert.equal(cfg({ targetSize: 4 }).playMode, 'pick4');
+  assert.equal(cfg({ targetSize: 7 }).playMode, DEFAULT_CONFIG.playMode);
+  // 已经是新版的 playMode 时不再被 targetSize 覆盖
+  assert.equal(cfg({ playMode: 'special', targetSize: 4 }).playMode, 'special');
+});
+
+test('特码赔率可读写，非法值回落默认 48', () => {
+  const cfg = (raw) => sanitizeConfig(raw, DEFAULT_CONFIG).config;
+  assert.equal(cfg({ oddsSpecial: 9.8 }).oddsSpecial, 9.8);
+  assert.equal(cfg({ oddsSpecial: 0 }).oddsSpecial, DEFAULT_CONFIG.oddsSpecial);
+  assert.equal(cfg({ oddsSpecial: -5 }).oddsSpecial, DEFAULT_CONFIG.oddsSpecial);
+  assert.equal(cfg({ oddsSpecial: 'abc' }).oddsSpecial, DEFAULT_CONFIG.oddsSpecial);
+  // 超出上限按上限收敛（与本金 / 三中三 / 四中四赔率同一套规则）
+  assert.equal(cfg({ oddsSpecial: 1e9 }).oddsSpecial, 1_000_000);
+  assert.equal(DEFAULT_CONFIG.oddsSpecial, 48);
 });
 
 test('玩法配置能正常读写并迁移', () => {
@@ -110,7 +131,7 @@ test('玩法配置能正常读写并迁移', () => {
     [STORAGE_KEYS.CONFIG]: JSON.stringify({ stake: 20, odds3: 650, odds4: 7500, targetSize: 4 })
   });
   const state = loadPersistedState(storage, opts);
-  assert.equal(state.config.targetSize, 4);
+  assert.equal(state.config.playMode, 'pick4');
   assert.equal(state.config.stake, 20);
 });
 

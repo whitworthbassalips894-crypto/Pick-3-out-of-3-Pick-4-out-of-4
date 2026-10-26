@@ -156,13 +156,20 @@ export function sanitizeConfig(raw, defaults) {
   out.stake = num(raw.stake, defaults.stake, 1, 1_000_000);
   out.odds3 = num(raw.odds3, defaults.odds3, 1, 1_000_000);
   out.odds4 = num(raw.odds4, defaults.odds4, 1, 1_000_000);
-  // 直选玩法：3 = 三中三，4 = 四中四
-  const size = Number(raw.targetSize);
-  if (size !== 3 && size !== 4) {
-    if (raw.targetSize != null) repaired = true;
-    out.targetSize = defaults.targetSize === 4 ? 4 : 3;
+  out.oddsSpecial = num(raw.oddsSpecial, defaults.oddsSpecial ?? 48, 1, 1_000_000);
+  // 当前玩法：special = 特码（每注 5 个号），pick3 = 三中三，pick4 = 四中四
+  const validModes = ['special', 'pick3', 'pick4'];
+  const mode = String(raw.playMode ?? '').trim();
+  if (validModes.includes(mode)) {
+    out.playMode = mode;
+  } else if (raw.playMode != null) {
+    repaired = true;
+    out.playMode = defaults.playMode || 'special';
+  } else if (raw.targetSize === 3 || raw.targetSize === 4) {
+    // 旧版本用 targetSize（3 / 4）记录玩法，迁移成 playMode，保留老用户原来的选择
+    out.playMode = raw.targetSize === 4 ? 'pick4' : 'pick3';
   } else {
-    out.targetSize = size;
+    out.playMode = defaults.playMode || 'special';
   }
   if (raw.hitRule) out.hitRule = String(raw.hitRule);
   if (raw.remoteSourceUrl) out.remoteSourceUrl = String(raw.remoteSourceUrl);
@@ -189,7 +196,7 @@ export function sanitizePicks(raw) {
     }
     return out;
   };
-  // 存储层仍保留 7 个号的上限（不丢老用户数据）；直选玩法在应用层按 3 / 4 个号收敛
+  // 存储层保留 7 个号的上限（不丢老用户数据）；直选玩法在应用层按 3 / 4 / 5 个号收敛
   const picks = toNums(raw.picks ?? raw.numbers ?? raw.selection).sort((a, b) => a - b).slice(0, 7);
   const pinned = toNums(raw.pinned ?? raw.dan ?? raw.locked)
     .filter((n) => picks.includes(n))
