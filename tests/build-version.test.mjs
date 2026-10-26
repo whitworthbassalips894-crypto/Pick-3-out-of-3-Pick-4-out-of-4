@@ -150,6 +150,45 @@ test('页面结构：每日 5 注（1 随机 + 4 风格精选），精简后只�
   assert.ok(html.includes('详情'));
 });
 
+test('页面里每个按钮 / 下拉都真的绑定了事件（防止再次出现「点了没反应」）', () => {
+  const html = read('index.html');
+  const app = read('src/app.js');
+
+  // 只看有 id 的 <button> 与 <select>：它们必须是可交互的
+  const buttons = [...html.matchAll(/<button[^>]*id="([A-Za-z0-9_]+)"/g)].map((m) => m[1]);
+  const selects = [...html.matchAll(/<select[^>]*id="([A-Za-z0-9_]+)"/g)].map((m) => m[1]);
+  assert.ok(buttons.length >= 20, `按钮数量异常：${buttons.length}`);
+  assert.ok(selects.length >= 2, `下拉数量异常：${selects.length}`);
+
+  for (const id of buttons) {
+    assert.ok(
+      app.includes(`on('${id}'`) || app.includes(`$('${id}')`),
+      `按钮 #${id} 在 app.js 里没有任何绑定`
+    );
+  }
+  for (const id of selects) {
+    assert.ok(
+      app.includes(`on('${id}', 'change'`),
+      `下拉 #${id} 没有绑定 change 事件（换了选项不会生效）`
+    );
+  }
+});
+
+test('回放详情不依赖 globalThis.CSS（老 WebView 没有 CSS.escape）', () => {
+  const app = read('src/app.js');
+  // 去掉注释再检查，避免把「不要用 CSS.escape」这类说明当成真实用到
+  const code = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.ok(!code.includes('CSS.escape'), '不能用 CSS.escape，应改用 dataset 比对定位行');
+});
+
+test('回放不再有已下线的筛选维度（年份 / 命中 / 搜索 / 自选方案）', () => {
+  const app = read('src/app.js');
+  for (const dead of ['applyReplayFilters', 'filters.hit', 'filters.q', 'filters.strategy', 'replay.filters.year']) {
+    assert.ok(!app.includes(dead), `回放里仍残留已下线的筛选逻辑：${dead}`);
+  }
+  assert.ok(app.includes("filters: {\n    range: '120'"), '回放筛选状态应只剩「范围」一项');
+});
+
 test('Service Worker 的外壳清单覆盖 app.js 的全部本地依赖（离线可用）', () => {
   const sw = read('sw.js');
   const app = read('src/app.js');

@@ -73,6 +73,37 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     for (const gone of ['picker', 'check', 'consensusBox', 'explainerLine', 'grid49', 'entryLine']) {
       assert.equal(window.document.getElementById(gone), null, `区块 ${gone} 应该已被移除`);
     }
+
+    // —— 回归：切换回放范围必须真的重算并重绘（曾经因为漏绑 change 事件而毫无反应）——
+    const sel = window.document.getElementById('histRange');
+    assert.ok(sel, '必须有回放范围下拉');
+    assert.ok(document.getElementById('btnReplayRun'), '必须有重新计算按钮');
+    const counts = [];
+    for (const [value, expect] of [['30', 30], ['60', 60]]) {
+      sel.value = value;
+      sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 900));
+      const countText = text('histCount');
+      assert.ok(countText.includes(`共 ${expect} 期`), `范围 ${value} 后统计应变成 ${expect} 期，实际：${countText}`);
+      counts.push(window.document.querySelectorAll('#histBody tr[data-draw-id]').length);
+    }
+    assert.ok(counts[0] !== counts[1] || counts[0] === 30, '切换范围后表格行数应随之变化');
+
+    // —— 回归：展开详情不能依赖 globalThis.CSS（老 WebView 里没有，具体见 build-version 的静态检查）——
+    window.document.querySelector('#histBody [data-feat-toggle]')
+      .dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(window.document.querySelectorAll('#histBody tr.feat-detail').length, 1, '详情行没渲染出来');
+
+    // —— 回归：重摇随机注后，回放里的 #1 也要跟着变 ——
+    const detailText = () => window.document.querySelector('#histBody tr.feat-detail')?.textContent || '';
+    const beforeReroll = detailText();
+    window.document.getElementById('btnRerollRandom')
+      .dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1200));
+    assert.notEqual(detailText(), beforeReroll, '重摇后回放里的随机注没有更新');
+    assert.ok(text('replayStatus').includes('已回放'), `重摇后回放未完成：${text('replayStatus')}`);
+
     assert.deepEqual(errors, [], `页面运行报错：${errors.slice(0, 3).join(' | ')}`);
   } finally {
     console.error = origError;
