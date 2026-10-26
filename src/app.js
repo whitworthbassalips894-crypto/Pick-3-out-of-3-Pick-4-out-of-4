@@ -22,6 +22,8 @@ import {
 } from './constants.js';
 import { evaluate7CodeCompound, normalizeNumbers } from './combinatorics.js';
 import { isValidISODate, mergeDraws, normalizeDrawRecord, parseDrawsInput } from './parser.js';
+import { compareDrawSets, formatSyncSummary } from './sync.js';
+import { formatFiveTickets, formatSingleTicket, formatTickets } from './copy.js';
 import {
   buildCustomRecords,
   buildDailyFiveRecords,
@@ -148,10 +150,11 @@ function ballHtml(num, opts = {}) {
   const size = opts.size ? ` ${opts.size}` : '';
   const hit = opts.hitSet?.has(n) ? ' ball-hit' : '';
   const dim = opts.dim ? ' ball-special-dim' : '';
+  const cons = opts.consensus ? ' ball-consensus' : '';
   const zodiac = opts.zodiac === false ? '' : getZodiacForNumber(n, opts.date || '2026-10-24');
   const pin = opts.pinned ? '<span class="pin-badge">胆</span>' : '';
   const attrs = opts.attrs || '';
-  return `<div class="lotto-ball-wrap" ${attrs}><div class="lotto-ball ${color}${size}${hit}${dim}">${pad2(n)}${pin}</div>${zodiac ? `<span class="ball-meta">${zodiac}</span>` : ''}</div>`;
+  return `<div class="lotto-ball-wrap" ${attrs}><div class="lotto-ball ${color}${size}${hit}${dim}${cons}">${pad2(n)}${pin}</div>${zodiac ? `<span class="ball-meta">${zodiac}</span>` : ''}</div>`;
 }
 
 function miniBallHtml(num, opts = {}) {
@@ -262,30 +265,22 @@ const betConfig = () => ({ stake: state.config.stake, odds3: state.config.odds3,
 
 /* ==================== 文案（复制用） ==================== */
 
-function fiveText(plan, target) {
-  const lines = [
-    `${target.year}年第${target.period}期 每日 5 注（1 注随机 + 4 注精选）`,
-    ''
-  ];
-  for (const e of plan.five) {
-    lines.push(`${e.code} ${e.icon} ${e.name}：${numsText(e.numbers)}`);
-    lines.push(`  三中三精选5注：${e.featuredPick3.map((t) => numsText(t)).join(' / ')}`);
-    lines.push(`  四中四精选5注：${e.featuredPick4.map((t) => numsText(t)).join(' / ')}`);
-  }
-  if (plan.consensus.length) {
-    lines.push(`共识号（≥2 注精选同选）：${numsText(plan.consensus)}`);
-  }
-  lines.push('（仅核对前6个正码，特码不计入）');
-  return lines.join('\n');
+/**
+ * 复制内容统一规范：**只有号码，每注一行**，不含任何汉字、标题或多余数字。
+ * 详细规则与测试见 src/copy.js。
+ */
+function ticketsText(tickets) {
+  return formatTickets(tickets);
 }
 
+/** 今日 5 注（每注一行 7 个号码） */
+function fiveText(plan) {
+  return formatFiveTickets(plan.five);
+}
+
+/** 单注 7 码 */
 function fiveCardText(e) {
-  return [
-    `${e.code} ${e.icon} ${e.name}`,
-    `7码：${numsText(e.numbers)}`,
-    `三中三精选5注：${e.featuredPick3.map((t) => numsText(t)).join(' / ')}`,
-    `四中四精选5注：${e.featuredPick4.map((t) => numsText(t)).join(' / ')}`
-  ].join('\n');
+  return formatSingleTicket(e.numbers);
 }
 
 /* ==================== 渲染：顶栏与期数 ==================== */
@@ -329,12 +324,17 @@ function populatePeriodSelect() {
 
 /* ==================== 渲染：① 今日推荐（每日 5 注） ==================== */
 
-function fiveCardHtml(e, ctx, cfg) {
+function fiveCardHtml(e, ctx, cfg, consensusSet = new Set()) {
   const t = ctx.target;
   // 该注命中当期正码的号码集合（只取前 6 个正码，特码不参与）
   const drawNormals = ctx.draw ? ctx.draw.numbers.slice(0, 6) : [];
   const cardHitSet = ctx.draw ? new Set(e.numbers.filter((x) => drawNormals.includes(x))) : null;
-  const balls = e.numbers.map((n) => ballHtml(n, { size: 'sm', date: t.date, hitSet: cardHitSet })).join('');
+  const balls = e.numbers.map((n) => ballHtml(n, {
+    size: 'sm',
+    date: t.date,
+    hitSet: cardHitSet,
+    consensus: consensusSet.has(n)
+  })).join('');
   const shape = e.shape || { odd: 0, even: 0, big: 0, small: 0, zone1: 0, zone2: 0, zone3: 0, red: 0, blue: 0, green: 0, sum: 0 };
 
   let hitHtml = '';
@@ -379,9 +379,13 @@ function fiveCardHtml(e, ctx, cfg) {
       <details class="fc-fold">
         <summary>精选 5 注三中三 / 5 注四中四</summary>
         <div class="fc-fold-body">
-          <div class="fc-sub-title pick3-color">★ 三中三 5 注</div>
+          <div class="fc-sub-title pick3-color">★ 三中三 5 注
+            <button type="button" class="btn btn-sm" data-copy-pick3="${escapeHtml(e.id)}">复制</button>
+          </div>
           <div class="ticket-list">${ticketRow(e.featuredPick3, 3)}</div>
-          <div class="fc-sub-title pick4-color">★ 四中四 5 注</div>
+          <div class="fc-sub-title pick4-color">★ 四中四 5 注
+            <button type="button" class="btn btn-sm" data-copy-pick4="${escapeHtml(e.id)}">复制</button>
+          </div>
           <div class="ticket-list">${ticketRow(e.featuredPick4, 4)}</div>
         </div>
       </details>
@@ -404,7 +408,7 @@ function renderToday() {
   $('heroMeta').textContent = `每日 5 注（1 注随机基线 + 4 注精选）· 基于最近 ${plan.featureWindow} 期正码特征`;
   $('btnResetRandom').disabled = state.randomSalt === 0;
 
-  $('fiveGrid').innerHTML = plan.five.map((e) => fiveCardHtml(e, ctx, cfg)).join('');
+  $('fiveGrid').innerHTML = plan.five.map((e) => fiveCardHtml(e, ctx, cfg, new Set(plan.consensus))).join('');
 
   // 共识号：4 注精选里被 ≥2 注同时选中的号码
   const consensusHtml = plan.consensus.length
@@ -581,9 +585,48 @@ function initEntryDefaults() {
   $('entryDate').value = next.date;
 }
 
+/** 找到某个期号的上一期（按时间倒序的第一条更早记录） */
+function findPrevDraw(year, periodNum) {
+  return state.allDraws.find((d) => d.year < year || (d.year === year && d.periodNum < periodNum)) || null;
+}
+
+/** 依据上一期推算出的应开奖日期（上一期日期 + 1 天） */
+function expectedDateFor(year, periodNum) {
+  const prev = findPrevDraw(year, periodNum);
+  if (!prev || !/^\d{4}-\d{2}-\d{2}$/.test(prev.date || '')) return '';
+  const dt = new Date(`${prev.date}T12:00:00Z`);
+  if (Number.isNaN(dt.getTime())) return '';
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * 开奖录入防错提示：建议期号 / 是否已存在 / 日期是否连续
+ */
+function updateEntryHint() {
+  const hint = $('entryHint');
+  if (!hint) return;
+  const next = getNextDrawMeta();
+  const t = entryTarget();
+  const existed = state.allDraws.find((d) => d.id === `${t.year}-${padPeriod(t.periodNum)}`);
+  const expected = expectedDateFor(t.year, t.periodNum);
+  const bits = [];
+  bits.push(`建议下一期：<b>${next.year}-${padPeriod(next.periodNum)}</b>（${next.date}）`);
+  if (existed) {
+    bits.push(`⚠ <b>${existed.id}</b> 已存在（${existed.date}），保存会覆盖本机记录`);
+  }
+  if (expected && t.date && t.date !== expected) {
+    bits.push(`⚠ 日期 ${t.date} 与上一期推算的 ${expected} 不一致，请确认`);
+  } else if (expected && t.date) {
+    bits.push(`日期与上一期连续 ✓`);
+  }
+  hint.innerHTML = bits.join(' · ');
+}
+
 function renderCheck() {
   const { numbers: nums } = parseNumbersFromText($('entryLine')?.value, 7);
   const t = entryTarget();
+  updateEntryHint();
 
   const slots = [];
   for (let i = 0; i < 7; i++) {
@@ -984,7 +1027,36 @@ function refreshAfterDataChange() {
   renderToday();
   renderPicker();
   renderCheck();
+  renderSyncPanel();
   scheduleReplay({ recompute: true });
+}
+
+/**
+ * 上一期 / 下一期快捷切换
+ * @param {number} dir +1 = 更早一期，-1 = 更新一期（0 表示当前显示的下一期）
+ */
+function stepPeriod(dir) {
+  const all = state.allDraws;
+  if (!all.length) { showToast('没有可切换的期次'); return; }
+  // all 是「最新 → 最早」排列
+  const idx = all.findIndex((d) => d.id === state.periodKey);
+  if (idx === -1) {
+    // 当前是 NEXT（未开奖的下一期）
+    const target = dir > 0 ? all[0] : null;
+    if (!target) { showToast('已经是最新一期'); return; }
+    state.periodKey = target.id;
+  } else {
+    const nextIdx = idx + dir;
+    if (nextIdx < 0) { state.periodKey = 'NEXT'; }
+    else if (nextIdx >= all.length) { showToast('已经是最新一期'); return; }
+    else { state.periodKey = all[nextIdx].id; }
+  }
+  const sel = $('periodSelect');
+  if (sel) sel.value = state.periodKey;
+  renderToday();
+  renderPicker();
+  const label = state.periodKey === 'NEXT' ? '下一期' : state.periodKey;
+  showToast(`已切换到 ${label}`);
 }
 
 function mergeIncoming(parsed) {
@@ -1012,8 +1084,14 @@ function bindEvents() {
   });
   $('btnCopyAll').addEventListener('click', () => {
     const ctx = getPeriodContext();
-    copyText(fiveText(getFivePlan(ctx.target), ctx.target), '今日 5 注已复制');
+    copyText(fiveText(getFivePlan(ctx.target)), '今日 5 注已复制');
   });
+  $('btnCopyAllMobile').addEventListener('click', () => {
+    const ctx = getPeriodContext();
+    copyText(fiveText(getFivePlan(ctx.target)), '今日 5 注已复制');
+  });
+  $('btnPrevPeriod').addEventListener('click', () => stepPeriod(1));
+  $('btnNextPeriod').addEventListener('click', () => stepPeriod(-1));
   $('btnRerollRandom').addEventListener('click', () => {
     state.randomSalt += 1;
     saveRandomSalt();
@@ -1033,6 +1111,20 @@ function bindEvents() {
       const plan = getFivePlan(getPeriodContext().target);
       const entry = plan.five.find((x) => x.id === copyBtn.dataset.copyFive);
       if (entry) copyText(fiveCardText(entry), `${entry.code} ${entry.name} 已复制`);
+      return;
+    }
+    const copy3 = e.target.closest('[data-copy-pick3]');
+    if (copy3) {
+      const plan = getFivePlan(getPeriodContext().target);
+      const entry = plan.five.find((x) => x.id === copy3.dataset.copyPick3);
+      if (entry) copyText(ticketsText(entry.featuredPick3), '三中三 5 注已复制');
+      return;
+    }
+    const copy4 = e.target.closest('[data-copy-pick4]');
+    if (copy4) {
+      const plan = getFivePlan(getPeriodContext().target);
+      const entry = plan.five.find((x) => x.id === copy4.dataset.copyPick4);
+      if (entry) copyText(ticketsText(entry.featuredPick4), '四中四 5 注已复制');
       return;
     }
     const loadBtn = e.target.closest('[data-load-five]');
@@ -1120,6 +1212,14 @@ function bindEvents() {
   /* ③ 开奖核对 */
   ['entryLine', 'entryYear', 'entryPeriod', 'entryDate'].forEach((id) => {
     $(id).addEventListener('input', renderCheck);
+  });
+  $('btnUseNextPeriod').addEventListener('click', () => {
+    const next = getNextDrawMeta();
+    $('entryYear').value = next.year;
+    $('entryPeriod').value = next.periodNum;
+    $('entryDate').value = expectedDateFor(next.year, next.periodNum) || next.date;
+    renderCheck();
+    showToast(`已填入建议期号 ${next.year}-${padPeriod(next.periodNum)}`);
   });
   $('btnSaveDraw').addEventListener('click', () => {
     const { numbers, errors } = parseNumbersFromText($('entryLine').value, 7);
@@ -1297,30 +1397,75 @@ function bindEvents() {
     $('btnBootRepair').addEventListener('click', () => repairCache({ message: '已清理旧缓存，正在重新载入…' }));
   }
 
-  /* ⑤ 数据同步与导入 */
-  $('btnSyncRepo').addEventListener('click', async () => {
-    const status = $('syncStatus');
-    status.textContent = '正在拉取 ./data/draws.json…';
-    try {
-      const res = await fetch(`./data/draws.json?t=${Date.now()}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const incoming = Array.isArray(data.draws) ? data.draws : [];
-      if (!incoming.length) throw new Error('底库内容为空');
-      const { merged, addedCount, updatedCount } = mergeDraws(state.baseDraws, incoming);
-      state.baseDraws = merged;
-      refreshAfterDataChange();
-      status.textContent = `✓ 已刷新：共 ${state.allDraws.length} 期（新增 ${addedCount}、更新 ${updatedCount}）`;
-      showToast('底库刷新成功');
-    } catch (err) {
-      status.textContent = `拉取失败（${err.message}），已继续使用内置 ${state.allDraws.length} 期底库（离线可用）。`;
+  /* ⑤ 数据同步 */
+  $('btnSyncCheck').addEventListener('click', () => runSync({ write: false }));
+  $('btnSyncNow').addEventListener('click', () => runSync({ write: true }));
+  $('btnSyncFix').addEventListener('click', () => runSync({ write: false, fix: true }));
+  $('btnSyncReload').addEventListener('click', () => runSync({ write: false }));
+
+  $('btnExportDb').addEventListener('click', () => {
+    const payload = {
+      updatedAt: new Date().toISOString(),
+      build: APP_BUILD,
+      source: DEFAULT_CONFIG.remoteSourceUrl,
+      totalCount: state.allDraws.length,
+      latestId: state.allDraws[0]?.id || null,
+      draws: state.allDraws
+    };
+    downloadJson(payload, `draws-${state.allDraws[0]?.id || 'export'}.json`);
+    showToast(`已导出 ${state.allDraws.length} 期底库 JSON`);
+  });
+
+  $('btnPastePreview').addEventListener('click', () => {
+    const msg = $('pasteMsg');
+    const parsed = parseDrawsInput($('pasteBox').value || '');
+    if (!parsed.length) {
+      msg.textContent = '✕ 没识别出有效记录（需要期号 + 6正码 + 特码，号码必须在 1–49 且不重复）';
+      showToast('✕ 粘贴内容没有解析出开奖记录');
+      return;
     }
+    const r = compareDrawSets(state.allDraws, parsed);
+    const head = parsed[0];
+    const tail = parsed[parsed.length - 1];
+    msg.textContent = `✓ 解析 ${parsed.length} 期（${head.id} ~ ${tail.id}）：${formatSyncSummary(r)}`;
+    showToast(`解析到 ${parsed.length} 期`);
+  });
+
+  $('btnPasteMerge').addEventListener('click', () => {
+    const msg = $('pasteMsg');
+    const parsed = parseDrawsInput($('pasteBox').value || '');
+    if (!parsed.length) {
+      msg.textContent = '✕ 没识别出有效记录（需要期号 + 6正码 + 特码，号码必须在 1–49 且不重复）';
+      showToast('✕ 粘贴内容没有解析出开奖记录');
+      return;
+    }
+    const r = compareDrawSets(state.allDraws, parsed);
+    if (!r.appendable.length) {
+      msg.textContent = `没有可追加的期次${r.gapCount ? `（期号缺口：${r.gaps.map((g) => g.expected).join('、')}，已停止追加）` : ''}`;
+      showToast('没有可追加的期次');
+      return;
+    }
+    state.localDraws = mergeDraws(state.localDraws, r.appendable).merged;
+    saveLocalDraws();
+    refreshAfterDataChange();
+    msg.textContent = `✓ 已追加 ${r.appendable.length} 期（${r.appendable[0].id} ~ ${r.appendable[r.appendable.length - 1].id}），现在共 ${state.allDraws.length} 期`;
+    showToast(`已追加 ${r.appendable.length} 期`);
+  });
+
+  $('btnPasteDemo').addEventListener('click', () => {
+    const next = getNextDrawMeta();
+    $('pasteBox').value = `${next.periodNum}期(开奖时间:${next.date})\n08 猪 14 蛇 23 猴 26 蛇 31 鼠 45 狗 12 羊`;
+  });
+
+  $('btnPasteClear').addEventListener('click', () => {
+    $('pasteBox').value = '';
+    $('pasteMsg').textContent = '';
   });
 
   $('btnFetchRemote').addEventListener('click', async () => {
-    const status = $('syncStatus');
+    const msg = $('pasteMsg');
     const targetUrl = DEFAULT_CONFIG.remoteSourceUrl;
-    status.textContent = `正在尝试抓取 ${targetUrl} …`;
+    msg.textContent = `正在尝试抓取 ${targetUrl} …`;
     const candidates = [
       targetUrl,
       `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
@@ -1337,79 +1482,206 @@ function bindEvents() {
       } catch { /* 试下一个 */ }
     }
     if (!html) {
-      status.textContent = '⚠ 远程直连被浏览器跨域拦截，请用下方「粘贴导入」，或等待 GitHub Actions 每日自动同步。';
+      msg.textContent = '⚠ 远程直连被浏览器跨域拦截，请用「粘贴导入兜底」，或点「重新读取数据源」读取仓库 JSON。';
       return;
     }
     const parsed = parseDrawsInput(html);
     if (!parsed.length) {
-      status.textContent = '⚠ 远程页面已抓到，但没有解析出有效开奖记录。';
+      msg.textContent = '⚠ 远程页面已抓到，但没有解析出有效开奖记录。';
       return;
     }
-    const added = mergeIncoming(parsed);
-    status.textContent = `✓ 远程解析 ${parsed.length} 期（净增 ${added} 期），现在共 ${state.allDraws.length} 期`;
+    const r = compareDrawSets(state.allDraws, parsed);
+    if (!r.appendable.length) {
+      msg.textContent = `远程解析 ${parsed.length} 期，但没有可追加的期次`;
+      return;
+    }
+    state.localDraws = mergeDraws(state.localDraws, r.appendable).merged;
+    saveLocalDraws();
+    refreshAfterDataChange();
+    msg.textContent = `✓ 远程解析 ${parsed.length} 期，已追加 ${r.appendable.length} 期，现在共 ${state.allDraws.length} 期`;
     showToast('远程同步成功');
   });
 
-  $('btnExport').addEventListener('click', () => {
-    const payload = {
+  /* 本机手动开奖：导出 / 导入 / 清空 */
+  $('btnExportLocal').addEventListener('click', () => {
+    if (!state.localDraws.length) { showToast('本机没有手动录入的开奖'); return; }
+    downloadJson({
       updatedAt: new Date().toISOString(),
       build: APP_BUILD,
-      source: DEFAULT_CONFIG.remoteSourceUrl,
-      totalCount: state.allDraws.length,
-      latestId: state.allDraws[0]?.id || null,
-      draws: state.allDraws
-    };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `draws-${state.allDraws[0]?.id || 'export'}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // 延迟回收，避免部分浏览器在下载开始前就把 Blob URL 释放掉
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    showToast(`已导出 ${state.allDraws.length} 期底库 JSON`);
+      totalCount: state.localDraws.length,
+      draws: state.localDraws
+    }, `local-draws-${state.localDraws[0]?.id || 'export'}.json`);
+    showToast(`已导出 ${state.localDraws.length} 期本机开奖`);
   });
 
-  $('btnPasteMerge').addEventListener('click', () => {
-    const parsed = parseDrawsInput($('pasteBox').value || '');
-    const msg = $('pasteMsg');
-    if (!parsed.length) {
-      msg.textContent = '✕ 没识别出有效记录（需要期号 + 6正码 + 特码，号码必须在 1–49 且不重复）';
-      showToast('✕ 粘贴内容没有解析出开奖记录');
-      return;
-    }
-    const added = mergeIncoming(parsed);
-    msg.textContent = `✓ 解析 ${parsed.length} 期（净增 ${added} 期），共 ${state.allDraws.length} 期`;
-    showToast(`✓ 已导入 ${parsed.length} 期`);
-  });
-  $('btnPasteDemo').addEventListener('click', () => {
-    const next = getNextDrawMeta();
-    $('pasteBox').value = `${next.periodNum}期(开奖时间:${next.date})\n08 猪 14 蛇 23 猴 26 蛇 31 鼠 45 狗 12 羊`;
-  });
-  $('fileInput').addEventListener('change', async (e) => {
+  $('fileInputLocal').addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const parsed = parseDrawsInput(await file.text());
-      if (!parsed.length) {
-        showToast(`✕ 文件 ${file.name} 未解析出开奖记录（支持 HTML 源码 / 网页文本 / JSON）`);
+      const text = await file.text();
+      let incoming = null;
+      try {
+        const parsed = JSON.parse(text);
+        incoming = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.draws) ? parsed.draws : null);
+      } catch { /* 不是 JSON，交给通用解析 */ }
+      const records = incoming
+        ? incoming.map(normalizeDrawRecord).filter(Boolean)
+        : parseDrawsInput(text);
+      if (!records.length) {
+        showToast(`✕ ${file.name} 未解析出开奖记录`);
         $('pasteMsg').textContent = `✕ ${file.name} 未解析出开奖记录`;
         return;
       }
-      const added = mergeIncoming(parsed);
-      $('pasteMsg').textContent = `✓ 从 ${file.name} 导入 ${parsed.length} 期（净增 ${added} 期）`;
-      showToast(`已从 ${file.name} 导入 ${parsed.length} 期`);
+      state.localDraws = mergeDraws(state.localDraws, records).merged;
+      saveLocalDraws();
+      refreshAfterDataChange();
+      $('pasteMsg').textContent = `✓ 从 ${file.name} 导入 ${records.length} 期，现在本机共 ${state.localDraws.length} 期`;
+      showToast(`已导入 ${records.length} 期`);
     } catch (err) {
       showToast(`✕ 读取文件失败：${err.message}`);
     } finally {
       e.target.value = '';
     }
   });
+
+  $('btnClearLocalSync').addEventListener('click', () => {
+    if (!state.localDraws.length) { showToast('本机没有手动录入的开奖'); return; }
+    state.localDraws = [];
+    saveLocalDraws();
+    refreshAfterDataChange();
+    $('pasteMsg').textContent = '✓ 已清空本机手动录入的开奖';
+    showToast('已清空本机开奖');
+  });
+}
+
+/* ==================== 数据同步 ==================== */
+
+/** 数据源缓存（本次会话内复用） */
+const syncState = {
+  remote: null, // 数据源解析出的开奖记录
+  meta: null, // 数据源元信息 { updatedAt, latestId, totalCount }
+  last: null, // 最近一次比对结果
+  busy: false
+};
+
+/** 触发一次下载（Blob URL 延迟回收，避免部分浏览器在下载开始前就释放） */
+function downloadJson(payload, filename) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** 读取仓库数据源（带 _r 参数绕过 Service Worker 的数据缓存） */
+async function fetchSourceDb() {
+  const res = await fetch(`./data/draws.json?_r=${Date.now()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const draws = (Array.isArray(data.draws) ? data.draws : []).map(normalizeDrawRecord).filter(Boolean);
+  if (!draws.length) throw new Error('数据源里没有可用的开奖记录');
+  syncState.remote = draws;
+  syncState.meta = {
+    updatedAt: data.updatedAt || '',
+    latestId: data.latestId || draws[0].id,
+    totalCount: data.totalCount ?? draws.length,
+    source: data.source || ''
+  };
+  return draws;
+}
+
+function formatStamp(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderSyncPanel() {
+  const grid = $('syncGrid');
+  if (!grid) return;
+  const localLatest = state.allDraws[0] || null;
+  const r = syncState.last;
+  const cell = (label, value, cls) =>
+    `<div class="sync-cell${cls ? ' ' + cls : ''}"><span class="sc-label">${label}</span><span class="sc-value">${value}</span></div>`;
+  grid.innerHTML = [
+    cell('本地最后一期', localLatest ? localLatest.id : '—'),
+    cell('数据源最新一期', syncState.meta ? syncState.meta.latestId : '未读取'),
+    cell('数据源更新时间', syncState.meta ? formatStamp(syncState.meta.updatedAt) : '—'),
+    cell('本次可追加', r ? `${r.missingCount} 期` : '—', r && r.missingCount > 0 ? 'is-good' : ''),
+    cell('冲突 / 缺口', r ? `${r.conflictCount} / ${r.gapCount}` : '—', r && (r.conflictCount || r.gapCount) ? 'is-warn' : '')
+  ].join('');
+  const cnt = $('localCountSync');
+  if (cnt) cnt.textContent = String(state.localDraws.length);
+}
+
+/**
+ * 同步主流程：读取数据源 → 比对 → （可选）写入本机
+ * 写入只落在 localStorage，内置底库不会被改动。
+ */
+async function runSync({ write = false, fix = false } = {}) {
+  if (syncState.busy) return;
+  syncState.busy = true;
+  const status = $('syncStatus');
+  const btns = ['btnSyncCheck', 'btnSyncNow', 'btnSyncFix', 'btnSyncReload'].map((id) => $(id)).filter(Boolean);
+  btns.forEach((b) => { b.disabled = true; });
+  status.textContent = '正在读取仓库数据源 ./data/draws.json …';
+  try {
+    await fetchSourceDb();
+    const r = compareDrawSets(state.allDraws, syncState.remote);
+    syncState.last = r;
+    renderSyncPanel();
+
+    if (fix) {
+      if (!r.conflicts.length) {
+        status.textContent = `检查完成：${formatSyncSummary(r)}；没有需要修复的冲突。`;
+        showToast('没有冲突需要修复');
+        return;
+      }
+      state.localDraws = mergeDraws(state.localDraws, r.conflicts.map((c) => c.remote)).merged;
+      saveLocalDraws();
+      refreshAfterDataChange();
+      syncState.last = compareDrawSets(state.allDraws, syncState.remote);
+      renderSyncPanel();
+      status.textContent = `✓ 已按数据源修复 ${r.conflicts.length} 期冲突（${r.conflicts.map((c) => c.id).join('、')}），现在共 ${state.allDraws.length} 期`;
+      showToast(`已修复 ${r.conflicts.length} 期冲突`);
+      return;
+    }
+
+    if (!write) {
+      status.textContent = `检查完成（未写入任何数据）：${formatSyncSummary(r)}`;
+      showToast('检查完成');
+      return;
+    }
+
+    if (!r.appendable.length) {
+      status.textContent = `同步完成：${formatSyncSummary(r)}；本机没有需要新增的期次。`;
+      showToast('已是最新，无需同步');
+      return;
+    }
+    state.localDraws = mergeDraws(state.localDraws, r.appendable).merged;
+    saveLocalDraws();
+    refreshAfterDataChange();
+    syncState.last = compareDrawSets(state.allDraws, syncState.remote);
+    renderSyncPanel();
+    const ids = r.appendable.map((d) => d.id);
+    status.textContent = `✓ 已把 ${r.appendable.length} 期（${ids[0]} ~ ${ids[ids.length - 1]}）追加写入本机，现在共 ${state.allDraws.length} 期；内置底库未改动。`;
+    showToast(`已同步 ${r.appendable.length} 期`);
+  } catch (err) {
+    status.textContent = `读取数据源失败：${err.message}。可改用下方「粘贴导入兜底」。`;
+    showToast('读取数据源失败');
+    console.warn('[sync]', err);
+  } finally {
+    syncState.busy = false;
+    btns.forEach((b) => { b.disabled = false; });
+  }
 }
 
 /* ==================== Service Worker / 缓存 ==================== */
-
 let replayTimer = null;
 function scheduleReplay({ recompute }) {
   clearTimeout(replayTimer);
@@ -1515,6 +1787,7 @@ function initApp() {
   renderToday();
   renderPicker();
   renderCheck();
+  renderSyncPanel();
   renderReplayTable();
   registerServiceWorker();
 

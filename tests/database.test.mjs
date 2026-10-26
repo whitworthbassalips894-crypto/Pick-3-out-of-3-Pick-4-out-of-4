@@ -10,16 +10,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const JSON_PATH = path.resolve(__dirname, '..', 'data', 'draws.json');
 
-test('historical database contains all 1757 draws across 2022-2026 and matches draws.js', () => {
+test('historical database contains all 1759 draws across 2022-2026 and matches draws.js', () => {
   assert.ok(fs.existsSync(JSON_PATH), 'data/draws.json must exist');
   const jsonDb = JSON.parse(fs.readFileSync(JSON_PATH, 'utf-8'));
 
-  assert.equal(jsonDb.totalCount, 1757);
-  assert.equal(jsonDb.draws.length, 1757);
-  assert.equal(INITIAL_DB.draws.length, 1757);
+  assert.equal(jsonDb.totalCount, 1759);
+  assert.equal(jsonDb.draws.length, 1759);
+  assert.equal(INITIAL_DB.draws.length, 1759);
   assert.deepEqual(jsonDb.years, [2026, 2025, 2024, 2023, 2022]);
-  assert.equal(jsonDb.latestId, '2026-296');
-  assert.equal(jsonDb.latestDate, '2026-10-23');
+  assert.equal(jsonDb.latestId, '2026-298');
+  assert.equal(jsonDb.latestDate, '2026-10-25');
 
   const countByYear = {};
   for (const d of jsonDb.draws) {
@@ -36,12 +36,12 @@ test('historical database contains all 1757 draws across 2022-2026 and matches d
   assert.equal(countByYear[2023], 365);
   assert.equal(countByYear[2024], 366);
   assert.equal(countByYear[2025], 365);
-  assert.equal(countByYear[2026], 296);
+  assert.equal(countByYear[2026], 298);
 });
 
 test('syncDraws dryRun parses and merges incoming HTML without corrupting database', async () => {
   const mockHtml = `
-    <dt><b>297</b>期(开奖时间:2026-10-24)</dt>
+    <dt><b>300</b>期(开奖时间:2026-10-27)</dt>
     <dl>
       <div class="ball" data-name="马" data-index="0"><p><span class="red">01</span><b>马</b></p></div>
       <div class="ball" data-name="狗" data-index="1"><p><span class="red">08</span><b>狗</b></p></div>
@@ -56,6 +56,6 @@ test('syncDraws dryRun parses and merges incoming HTML without corrupting databa
   const result = await syncDraws({ rawText: mockHtml, dryRun: true });
   assert.equal(result.parsedCount, 1);
   assert.equal(result.addedCount, 1);
-  assert.equal(result.totalCount, 1758);
-  assert.equal(result.latest.id, '2026-297');
+  assert.equal(result.totalCount, 1760);
+  assert.equal(result.latest.id, '2026-300');
 });

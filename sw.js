@@ -14,7 +14,7 @@
  *      由 tests/build-version.test.mjs 自动校验。
  */
 
-const BUILD_ID = '2026.10.25-r4';
+const BUILD_ID = '2026.10.26-r5';
 const CACHE_PREFIX = 'mark6-pick3-pick4-';
 const CACHE_NAME = `${CACHE_PREFIX}${BUILD_ID}`;
 
@@ -32,6 +32,7 @@ const SHELL_FILES = [
   './src/dailyfive.js',
   './src/statistics.js',
   './src/storage.js',
+  './src/sync.js',
   './src/app.js',
   './data/draws.js',
   './data/draws.json'
@@ -156,7 +157,10 @@ self.addEventListener('fetch', (event) => {
   const key = cacheKeyFor(url);
 
   // 底库：缓存优先 + 后台更新
+  // ⚠ 带 `_r=` 参数的请求（例如页面上的「重新读取数据源」）必须直连网络，
+  //    否则用户永远拿到旧缓存里的底库，同步功能形同虚设。
   if (DATA_PATH_SET.has(path)) {
+    const forceNetwork = url.searchParams.has('_r');
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
@@ -167,6 +171,12 @@ self.addEventListener('fetch', (event) => {
             return res;
           })
           .catch(() => null);
+        if (forceNetwork) {
+          const fresh = await network;
+          if (fresh) return fresh;
+          if (cached) return cached;
+          return new Response('离线且无本地缓存', { status: 503, statusText: 'offline' });
+        }
         if (cached) {
           network.catch(() => {});
           return cached;
