@@ -1464,23 +1464,8 @@ function bindEvents() {
 
   $('btnFetchRemote').addEventListener('click', async () => {
     const msg = $('pasteMsg');
-    const targetUrl = DEFAULT_CONFIG.remoteSourceUrl;
-    msg.textContent = `正在尝试抓取 ${targetUrl} …`;
-    const candidates = [
-      targetUrl,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-      `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
-    ];
-    let html = '';
-    for (const u of candidates) {
-      try {
-        const res = await fetch(u, { cache: 'no-store' });
-        if (res.ok) {
-          const text = await res.text();
-          if (text?.includes('期(开奖时间:')) { html = text; break; }
-        }
-      } catch { /* 试下一个 */ }
-    }
+    msg.textContent = `正在尝试抓取 ${DEFAULT_CONFIG.remoteSourceUrl} …`;
+    const html = await fetchRemoteSourceHtml();
     if (!html) {
       msg.textContent = '⚠ 远程直连被浏览器跨域拦截，请用「粘贴导入兜底」，或点「重新读取数据源」读取仓库 JSON。';
       return;
@@ -1619,6 +1604,36 @@ function renderSyncPanel() {
   if (cnt) cnt.textContent = String(state.localDraws.length);
 }
 
+/** 直连远程开奖源的候选地址（浏览器跨域限制下会依次尝试代理） */
+const REMOTE_CANDIDATES = [
+  DEFAULT_CONFIG.remoteSourceUrl,
+  `https://api.allorigins.win/raw?url=${encodeURIComponent(DEFAULT_CONFIG.remoteSourceUrl)}`,
+  `https://corsproxy.io/?${encodeURIComponent(DEFAULT_CONFIG.remoteSourceUrl)}`
+];
+
+/**
+ * 尝试抓取远程开奖源页面（每个候选地址都有超时，失败就换下一个）
+ * @returns {Promise<string>} 抓到的 HTML 文本（失败返回空串）
+ */
+async function fetchRemoteSourceHtml(timeoutMs = 5000) {
+  for (const u of REMOTE_CANDIDATES) {
+    let timer = null;
+    try {
+      const ctrl = new AbortController();
+      timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      const res = await fetch(u, { cache: 'no-store', signal: ctrl.signal });
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (text?.includes('期(开奖时间:')) return text;
+    } catch {
+      /* 试下一个 */
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  return '';
+}
+
 /**
  * 同步主流程：读取数据源 → 比对 → （可选）写入本机
  * 写入只落在 localStorage，内置底库不会被改动。
@@ -1658,19 +1673,39 @@ async function runSync({ write = false, fix = false } = {}) {
       return;
     }
 
-    if (!r.appendable.length) {
-      status.textContent = `同步完成：${formatSyncSummary(r)}；本机没有需要新增的期次。`;
+    if (r.appendable.length) {
+      state.localDraws = mergeDraws(state.localDraws, r.appendable).merged;
+      saveLocalDraws();
+      refreshAfterDataChange();
+      syncState.last = compareDrawSets(state.allDraws, syncState.remote);
+      renderSyncPanel();
+      const ids = r.appendable.map((d) => d.id);
+      status.textContent = `✓ 已把 ${r.appendable.length} 期（${ids[0]} ~ ${ids[ids.length - 1]}）追加写入本机，现在共 ${state.allDraws.length} 期；内置底库未改动。`;
+      showToast(`已同步 ${r.appendable.length} 期`);
+      return;
+    }
+
+    // 仓库数据源没有更新 → 再试一次远程开奖源（代理可能被浏览器跨域拦截）
+    status.textContent = '仓库数据源已是最新，正在尝试直连远程开奖源…';
+    const html = await fetchRemoteSourceHtml();
+    if (!html) {
+      status.textContent = `同步完成：${formatSyncSummary(r)}；本机没有需要新增的期次。（远程源被浏览器跨域限制拦下，可改用下方「粘贴导入兜底」）`;
       showToast('已是最新，无需同步');
       return;
     }
-    state.localDraws = mergeDraws(state.localDraws, r.appendable).merged;
+    const parsed = parseDrawsInput(html);
+    const r2 = compareDrawSets(state.allDraws, parsed);
+    if (!r2.appendable.length) {
+      status.textContent = `同步完成：仓库数据源与远程源都没有更新（远程源最新 ${r2.remoteLatest?.id || '未知'}）。`;
+      showToast('已是最新，无需同步');
+      return;
+    }
+    state.localDraws = mergeDraws(state.localDraws, r2.appendable).merged;
     saveLocalDraws();
     refreshAfterDataChange();
-    syncState.last = compareDrawSets(state.allDraws, syncState.remote);
-    renderSyncPanel();
-    const ids = r.appendable.map((d) => d.id);
-    status.textContent = `✓ 已把 ${r.appendable.length} 期（${ids[0]} ~ ${ids[ids.length - 1]}）追加写入本机，现在共 ${state.allDraws.length} 期；内置底库未改动。`;
-    showToast(`已同步 ${r.appendable.length} 期`);
+    const ids2 = r2.appendable.map((d) => d.id);
+    status.textContent = `✓ 已从远程开奖源补齐 ${r2.appendable.length} 期（${ids2[0]} ~ ${ids2[ids2.length - 1]}），现在共 ${state.allDraws.length} 期；内置底库未改动。`;
+    showToast(`已从远程源补齐 ${r2.appendable.length} 期`);
   } catch (err) {
     status.textContent = `读取数据源失败：${err.message}。可改用下方「粘贴导入兜底」。`;
     showToast('读取数据源失败');
