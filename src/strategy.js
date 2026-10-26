@@ -67,7 +67,8 @@ export function selectDirectNumbers(scoreMap, features, opts = {}) {
     odd: n % 2 === 1,
     tail: n % 10
   };
-  const size = Math.max(2, Math.min(6, Math.trunc(Number(opts.size ?? 3))));
+  // size 下限必须是 1：特码玩法每注就 1 个号（1 中 1）
+  const size = Math.max(1, Math.min(6, Math.trunc(Number(opts.size ?? 3))));
   const { quota = false, usedElsewhere = new Set(), excluded = [], maxShared = 0 } = opts;
 
   // 跨注已用次数：Set → 记账，Map 直接沿用

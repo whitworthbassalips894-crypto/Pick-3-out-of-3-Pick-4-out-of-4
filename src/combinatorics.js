@@ -5,8 +5,8 @@
  * 直选口径：一张注单 = size 个号码（3 = 三中三，4 = 四中四），
  * 这 size 个号码**全部**落在 6 个正码里才算命中，返奖 = 本金 × 赔率。
  *
- * 特码口径：一张注单 = 5 个号码，开奖的**最后一个号码（特码）**落在这 5 个号码里就算命中，
- * 返奖 = 本金 × 特码赔率；6 个正码不参与特码玩法的判定。
+ * 特码口径（1 中 1）：一张注单 = **1 个号码**，开奖的**最后一个号码（特码）**正好等于它也就算命中，
+ * 返奖 = 本金 × 特码赔率（市面常见 48 倍）；6 个正码不参与特码玩法的判定。
  */
 
 import { DEFAULT_CONFIG } from './constants.js';
@@ -174,18 +174,18 @@ export function evaluateDirectTickets(tickets, draw, userConfig = {}) {
 }
 
 /**
- * 核对一组「特码」注单（每注 5 个号码）
+ * 核对一组「特码」注单（每注 1 个号码，1 中 1）
  *
- * 命中规则：开奖的最后一个号码（特码）落在这 5 个号码里即算命中；
+ * 命中规则：开奖的最后一个号码（特码）正好等于这 1 个号码即算命中；
  * 6 个正码不参与判定，特码也不计入正码命中。
  *
- * @param {Array<Array<number|string>>} tickets 每注 5 个号码
+ * @param {Array<Array<number|string>>} tickets 每注 1 个号码
  * @param {{ numbers?: number[], special?: number } | null} draw 开奖结果
  * @param {{ stake?: number, oddsSpecial?: number, targetSize?: number }} [userConfig]
  */
 export function evaluateSpecialTickets(tickets, draw, userConfig = {}) {
   const stake = Math.max(0, Number(userConfig.stake ?? DEFAULT_CONFIG.stake));
-  const odds = Math.max(0, Number(userConfig.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial ?? 9.6));
+  const odds = Math.max(0, Number(userConfig.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial ?? 48));
 
   const { normalList, special } = extractDrawNormals(draw);
   const hasSpecial = Number.isInteger(special) && special >= 1 && special <= 49;
@@ -237,7 +237,7 @@ export function evaluateSpecialTickets(tickets, draw, userConfig = {}) {
 /**
  * 按玩法分发的注单核对
  *
- *  - playMode = 'special' → 特码口径（5 个号里含开奖特码即中）
+ *  - playMode = 'special' → 特码口径（1 个号等于开奖特码即中）
  *  - 其余（pick3 / pick4）→ 直选口径（号码全部落在 6 个正码里）
  *
  * @param {Array<Array<number|string>>} tickets

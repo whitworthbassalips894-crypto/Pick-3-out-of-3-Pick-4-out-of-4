@@ -67,58 +67,58 @@ test('formatPercent 输出百分比字符串', () => {
   assert.equal(formatPercent(NaN), '—');
 });
 
-test('特码基线：P = 5/49 ≈ 10.204%，公平赔率 9.8 倍', () => {
+test('特码基线（1 中 1）：每注 1 个号，P = 1/49 ≈ 2.0408%，公平赔率 49 倍', () => {
   const b = specialBaseline();
-  assert.equal(b.size, 5);
-  assert.ok(Math.abs(b.hitProb - 5 / 49) < 1e-12);
-  assert.ok(Math.abs(b.hitProb - 0.10204081632653061) < 1e-12);
-  assert.ok(Math.abs(b.fairOdds - 9.8) < 1e-9);
+  assert.equal(b.size, 1, '特码每注就是 1 个号');
+  assert.ok(Math.abs(b.hitProb - 1 / 49) < 1e-12);
+  assert.ok(Math.abs(b.hitProb - 0.02040816326530612) < 1e-12);
+  assert.equal(b.fairOdds, 49, '公平赔率 = 49/1 = 49 倍');
+  // 5 注 5 个不同单号：各号互斥，可相加 → 5/49
+  assert.ok(Math.abs(b.anyHitProb - 5 / 49) < 1e-12);
 });
 
-test('特码期望回报率：默认 9.6 倍 ⇒ ≈98%，9.8 倍 ⇒ 100%，48 倍 ⇒ ≈489.8%（不现实）', () => {
+test('特码期望回报率：默认 48 倍 ⇒ ≈97.96%，49 倍 ⇒ 100%（公平）', () => {
   const ev48 = expectedReturnRate('special', 48);
-  assert.ok(Math.abs(ev48 - 48 * (5 / 49)) < 1e-12);
-  assert.ok(Math.abs(ev48 - 4.897959183673469) < 1e-9, `实际 ${ev48}`);
-  assert.ok(ev48 > 1, '48 倍的期望回报率必然高于 100%，页面要显式提示');
+  assert.ok(Math.abs(ev48 - 48 / 49) < 1e-12, '1 中 1：EV = 赔率 × 1/49');
+  assert.ok(Math.abs(ev48 - 0.9795918367346939) < 1e-9, `实际 ${ev48}`);
+  // 默认赔率下期望回报率必须低于 100%（不制造「稳赚」的错觉）
+  assert.ok(ev48 < 1, '默认 48 倍的期望回报率必须小于 1');
 
-  const ev96 = expectedReturnRate('special', 9.6);
-  assert.ok(Math.abs(ev96 - 0.9795918367346939) < 1e-9);
-  // 默认赔率下期望回报率必须低于 100%（不制造“稳赚”的错觉）
-  assert.ok(ev96 < 1, '默认 9.6 倍的期望回报率必须小于 1');
+  const ev49 = expectedReturnRate('special', 49);
+  assert.ok(Math.abs(ev49 - 1) < 1e-9, '49 倍即公平赔率');
 
-  const ev98 = expectedReturnRate('special', 9.8);
-  assert.ok(Math.abs(ev98 - 1) < 1e-9, '公平赔率下期望回报率 = 1');
+  assert.ok(expectedReturnRate('special', 60) > 1, '高于 49 倍时页面要提示超过公平值');
 
-  // 传 size（3 / 4 / 5）也能取到对应口径，兼容旧调用
-  assert.ok(Math.abs(expectedReturnRate(5, 9.8) - 1) < 1e-9);
+  // 传号码个数 / 玩法名都能取到对应口径
+  assert.ok(Math.abs(expectedReturnRate(1, 49) - 1) < 1e-9);
   assert.ok(Math.abs(expectedReturnRate(3, 650) - 650 * (20 / 18424)) < 1e-12);
 });
 
-test('directBaseline 特码口径（size=5）返回 10.204% 与 9.8 倍公平赔率', () => {
+test('directBaseline 特码口径（size=1）返回 2.0408% 与 49 倍公平赔率', () => {
   const b = directBaseline('special');
-  assert.equal(b.size, 5);
-  assert.ok(Math.abs(b.hitProb - 5 / 49) < 1e-12);
-  assert.ok(Math.abs(b.fairOdds - 9.8) < 1e-9);
-  assert.ok(Math.abs(directBaseline(5).fairOdds - 9.8) < 1e-9);
+  assert.equal(b.size, 1);
+  assert.ok(Math.abs(b.hitProb - 1 / 49) < 1e-12);
+  assert.equal(b.fairOdds, 49);
+  assert.equal(directBaseline(1).fairOdds, 49);
 });
 
 /* ------------------------------------------- 「N 注至少中 1 注」的两种口径 */
 
-test('anyHitBaseline：独立近似是上界，按覆盖的近似更接近实际', () => {
+test('anyHitBaseline：特码 5 注覆盖 5 个号 → 5/49（各号互斥可相加）', () => {
   const base = specialBaseline();
   const a = anyHitBaseline(base, 5);
-  // 特码：5 注 × 5 个号 = 25 个号，完全不重叠
-  assert.equal(a.coverageNumbers, 25);
-  assert.ok(Math.abs(a.coverage - 25 / 49) < 1e-12);
-  assert.ok(Math.abs(a.independent - (1 - (1 - 5 / 49) ** 5)) < 1e-12);
-  // 独立近似（41.6%）高于并集近似（51%）？—— 不，独立近似只在该例里更小，这里只校验都落在合理区间
-  assert.ok(a.independent > 0.4 && a.independent < 0.42);
-  assert.ok(a.coverage > 0.5 && a.coverage < 0.52);
+  // 特码：5 注 × 1 个号 = 5 个号，完全不重叠
+  assert.equal(a.coverageNumbers, 5);
+  assert.ok(Math.abs(a.coverage - 5 / 49) < 1e-12);
+  assert.ok(Math.abs(a.independent - (1 - (1 - 1 / 49) ** 5)) < 1e-12);
+  // 互斥事件：精确值就是 5/49；独立近似 9.75% 略小
+  assert.ok(a.independent > 0.097 && a.independent < 0.098);
+  assert.ok(a.coverage > 0.102 && a.coverage < 0.103);
 });
 
 test('anyHitBaseline：注数/号码数会被 population 截断', () => {
   const base = specialBaseline();
-  const many = anyHitBaseline(base, 20); // 20 注 × 5 = 100 个号 > 49
+  const many = anyHitBaseline(base, 60); // 60 注 × 1 个号 = 60 个号 > 49
   assert.equal(many.coverageNumbers, 49);
   assert.equal(many.coverage, 1);
 });

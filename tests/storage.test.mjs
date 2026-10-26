@@ -115,25 +115,25 @@ test('旧版 targetSize（3 / 4）会迁移成 playMode', () => {
   assert.equal(cfg({ playMode: 'special', targetSize: 4 }).playMode, 'special');
 });
 
-test('特码赔率可读写，非法值回落默认 9.6', () => {
+test('特码赔率可读写，非法值回落默认 48', () => {
   const cfg = (raw) => sanitizeConfig(raw, DEFAULT_CONFIG).config;
-  assert.equal(cfg({ oddsSpecial: 9.8 }).oddsSpecial, 9.8);
-  assert.equal(cfg({ oddsSpecial: 20 }).oddsSpecial, 20);
+  assert.equal(cfg({ oddsSpecial: 45 }).oddsSpecial, 45);
+  assert.equal(cfg({ oddsSpecial: 60 }).oddsSpecial, 60);
   assert.equal(cfg({ oddsSpecial: 0 }).oddsSpecial, DEFAULT_CONFIG.oddsSpecial);
   assert.equal(cfg({ oddsSpecial: -5 }).oddsSpecial, DEFAULT_CONFIG.oddsSpecial);
   assert.equal(cfg({ oddsSpecial: 'abc' }).oddsSpecial, DEFAULT_CONFIG.oddsSpecial);
   // 超出上限按上限收敛（与本金 / 三中三 / 四中四赔率同一套规则）
   assert.equal(cfg({ oddsSpecial: 1e9 }).oddsSpecial, 1_000_000);
-  assert.equal(DEFAULT_CONFIG.oddsSpecial, 9.6);
+  assert.equal(DEFAULT_CONFIG.oddsSpecial, 48, '特码 1 中 1，默认按市面常见 48 倍');
 });
 
-test('旧版本默认写下的 48 倍特码赔率会迁移成 9.6（默认值错误修正）', () => {
+test('旧版本「5 个号包 1 个特码」时代存下的 9.6 倍会迁移成 48（1 中 1 口径）', () => {
   const cfg = (raw) => sanitizeConfig(raw, DEFAULT_CONFIG).config;
-  // 48 是上一版的默认值（“押 1 个号”的赔率），套到 5 个号上期望回报率高达 489.8%
-  assert.equal(cfg({ oddsSpecial: 48 }).oddsSpecial, 9.6);
+  // 9.6 是上一版的默认值（5 个号一注的赔率），特码改成 1 中 1 后必须迁移成 48
+  assert.equal(cfg({ oddsSpecial: 9.6 }).oddsSpecial, 48);
   // 用户自己填过的其它数值保持不变
-  assert.equal(cfg({ oddsSpecial: 20 }).oddsSpecial, 20);
-  assert.equal(cfg({ oddsSpecial: 9.8 }).oddsSpecial, 9.8);
+  assert.equal(cfg({ oddsSpecial: 45 }).oddsSpecial, 45);
+  assert.equal(cfg({ oddsSpecial: 60 }).oddsSpecial, 60);
 });
 
 test('玩法配置能正常读写并迁移', () => {

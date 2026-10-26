@@ -114,7 +114,8 @@ test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字�
 
 test('自选直选回放：每期都用同一组号码，且不偷看当期数据', () => {
   const targets = ALL.slice(0, 30);
-  for (const [mode, custom] of [['pick3', [6, 26, 29]], ['special', [6, 26, 29, 32, 38]]]) {
+  // 特码是 1 中 1：自选就 1 个号
+  for (const [mode, custom] of [['pick3', [6, 26, 29]], ['special', [26]]]) {
     const records = buildCustomRecords(ALL, targets, { customNumbers: custom, stake: 10, mode });
     for (const r of records) {
       assert.deepEqual(r.five[0].numbers, custom);
