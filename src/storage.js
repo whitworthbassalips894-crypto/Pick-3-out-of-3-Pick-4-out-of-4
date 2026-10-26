@@ -156,7 +156,16 @@ export function sanitizeConfig(raw, defaults) {
   out.stake = num(raw.stake, defaults.stake, 1, 1_000_000);
   out.odds3 = num(raw.odds3, defaults.odds3, 1, 1_000_000);
   out.odds4 = num(raw.odds4, defaults.odds4, 1, 1_000_000);
-  out.oddsSpecial = num(raw.oddsSpecial, defaults.oddsSpecial ?? 48, 1, 1_000_000);
+  // 特码赔率：旧版本默认写的 48 倍是「押 1 个号」的赔率，套到 5 个号上期望回报率高达 489.8%，
+  // 属于默认值错误 → 一次性迁移成 9.6 倍；用户自己填过的其它数值保持不变。
+  const OLD_SPECIAL_ODDS = 48;
+  const rawSpecialOdds = Number(raw.oddsSpecial);
+  if (rawSpecialOdds === OLD_SPECIAL_ODDS) {
+    repaired = true;
+    out.oddsSpecial = defaults.oddsSpecial ?? 9.6;
+  } else {
+    out.oddsSpecial = num(raw.oddsSpecial, defaults.oddsSpecial ?? 9.6, 1, 1_000_000);
+  }
   // 当前玩法：special = 特码（每注 5 个号），pick3 = 三中三，pick4 = 四中四
   const validModes = ['special', 'pick3', 'pick4'];
   const mode = String(raw.playMode ?? '').trim();

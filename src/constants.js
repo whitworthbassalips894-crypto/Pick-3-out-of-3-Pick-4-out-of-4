@@ -9,7 +9,7 @@
  * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
  * 由 tests/build-version.test.mjs 自动校验三处一致性。
  */
-export const APP_BUILD = '2026.10.26-r7';
+export const APP_BUILD = '2026.10.26-r8';
 
 /** 页面上显示的版本标签 */
 export const APP_VERSION_LABEL = `v${APP_BUILD}`;
@@ -129,7 +129,10 @@ export const DEFAULT_CONFIG = {
   stake: 10, // 默认单注本金 10 元（直选：每注 1 注投注）
   odds3: 650, // 默认三中三赔率 650 倍
   odds4: 7500, // 默认四中四赔率 7500 倍
-  oddsSpecial: 48, // 默认特码赔率 48 倍（1 注 5 个号，命中 = 特码落在这 5 个号里）
+  // 默认特码赔率 9.6 倍（1 注 5 个号，命中 = 特码落在这 5 个号里）
+  // 9.6 × 5/49 ≈ 98.0%，接近公平赔率 9.8 倍；早先版本里的 48 倍是「押 1 个号」的赔率，
+  // 套到 5 个号上会算出 489.8% 的期望回报率（不可能长期成立），已在迁移里改正。
+  oddsSpecial: 9.6,
   hitRule: 'normal_6_only', // 严格按传统连码规则：仅核对前 6 个正码（平一～平六）
   playMode: 'special', // 当前玩法：special = 特码（每注 5 个号），pick3 = 三中三，pick4 = 四中四
   remoteSourceUrl: 'https://2026kj.zkclhb.com:2025/am.html'

@@ -356,7 +356,7 @@ function renderOddsNote() {
       ? ' ⚠ 高于公平赔率，期望回报率会超过 100%，真实博彩有抽水，请核对赔率'
       : ev < 0.5 ? '（长期为负）' : ev > 1 - 1e-6 ? '（公平值）' : '';
     const marketHint = mode === 'special'
-      ? `；5 个号一注若想达到传统 1 个号 48 倍的返还水平，赔率应填 9.6 倍`
+      ? `；5 个号一注的默认赔率是 9.6 倍（期望回报率 98.0%），9.8 倍即公平赔率；48 倍是「押 1 个号」的赔率，套到 5 个号上会算出 489.8% 的期望回报率，不现实`
       : '';
     return `${label}：${odds} 倍 → 单注命中 P = ${formatPercent(base.hitProb, 4)}，公平赔率约 ${fair % 1 === 0 ? fair : fair.toFixed(1)} 倍，期望回报率约 ${formatPercent(ev, 1)}${flag}${marketHint}`;
   });
