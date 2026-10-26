@@ -32,7 +32,10 @@ import {
   generateDailyFive,
   summarizeDailyFive
 } from './dailyfive.js';
-import { directBaseline, expectedReturnRate, formatPercent } from './statistics.js';
+import { anyHitBaseline, directBaseline, expectedReturnRate, formatPercent } from './statistics.js';
+import { addDays, nextPeriodMeta } from './periods.js';
+import { auditDraws, formatAuditSummary } from './audit.js';
+import { droughtRarity, summarizeDroughts } from './streaks.js';
 import {
   STORAGE_KEYS,
   loadPersistedState,
@@ -259,24 +262,15 @@ function rebuildMergedDraws() {
   planCache.clear();
 }
 
+/**
+ * 下一期的年份 / 期号 / 日期
+ *
+ * 期号约定是「当年第几天」（2024 年有 366 期），所以跨年必须按日历判断：
+ * 旧实现用 `periodNum > 366` 这个固定常量，会把平年（365 天）的 12-31 算成
+ * 「第 366 期」这种不存在的期号。现在统一交给 src/periods.js 处理（有单测）。
+ */
 function getNextDrawMeta() {
-  const latest = state.allDraws[0] || { year: 2026, periodNum: 296, date: '2026-10-23' };
-  let year = latest.year;
-  let periodNum = (latest.periodNum || 0) + 1;
-  // 跨年：年末最后一期之后归入下一年第 1 期
-  if (periodNum > 366) {
-    year = year + 1;
-    periodNum = 1;
-  }
-  let date = `${year}-01-01`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(latest.date || '')) {
-    const dt = new Date(`${latest.date}T12:00:00Z`);
-    if (!Number.isNaN(dt.getTime())) {
-      dt.setUTCDate(dt.getUTCDate() + 1);
-      date = dt.toISOString().slice(0, 10);
-    }
-  }
-  return { id: 'NEXT', year, periodNum, period: padPeriod(periodNum), date, isUpcoming: true };
+  return nextPeriodMeta(state.allDraws[0] || { year: 2026, periodNum: 296, date: '2026-10-23' });
 }
 
 function getPeriodContext() {
@@ -716,11 +710,8 @@ function findPrevDraw(year, periodNum) {
 /** 依据上一期推算出的应开奖日期（上一期日期 + 1 天） */
 function expectedDateFor(year, periodNum) {
   const prev = findPrevDraw(year, periodNum);
-  if (!prev || !/^\d{4}-\d{2}-\d{2}$/.test(prev.date || '')) return '';
-  const dt = new Date(`${prev.date}T12:00:00Z`);
-  if (Number.isNaN(dt.getTime())) return '';
-  dt.setUTCDate(dt.getUTCDate() + 1);
-  return dt.toISOString().slice(0, 10);
+  if (!prev) return '';
+  return addDays(prev.date, 1);
 }
 
 /**
@@ -1108,17 +1099,30 @@ function renderReplayMetrics() {
       ${sub}
     </div>`;
 
+  // 连空体检：用「已算出的全部回放记录」算，不受下面「命中状态」筛选影响
+  const drought = summarizeDroughts(replay.records);
+  const droughtById = new Map(drought.perTicket.map((t) => [t.id, t]));
+  const rarity = droughtRarity(drought.combined.currentDrought, drought.combined.theoreticalAnyHit / 100);
+
   // 5 注逐注对比表
   const rows = summary.catalog
     .filter((c) => c.periods > 0)
-    .map((c) => `
+    .map((c) => {
+      const d = droughtById.get(c.id);
+      const cur = d ? d.currentDrought : '—';
+      const longest = d ? `${d.longestDrought} 期` : '—';
+      const curCls = d && d.currentDrought >= Math.max(1, d.p90Gap) ? 'is-warn' : '';
+      return `
       <tr class="${c.random ? 'is-random' : ''}">
         <td>${c.icon} ${escapeHtml(c.code)} ${escapeHtml(c.name)}</td>
         <td>${c.avgHits}</td>
         <td>${c.winPeriods} 期 · ${c.winRate}%</td>
         <td>${Math.round(c.payout).toLocaleString()}</td>
         <td>${c.roi}%</td>
-      </tr>`).join('');
+        <td class="${curCls}">${cur}</td>
+        <td>${longest}</td>
+      </tr>`;
+    }).join('');
 
   const compareCard = `
     <div class="metric-card v-num mc-wide">
@@ -1126,14 +1130,38 @@ function renderReplayMetrics() {
       <div class="table-scroll">
         <table class="mc-table">
           <thead>
-            <tr><th>注</th><th>${isSpecial ? '场均命中' : '场均命中号码'}</th><th>${isSpecial ? '特码命中' : modeTitle(mode) + '命中'}</th><th>累计返奖(元)</th><th>ROI</th></tr>
+            <tr><th>注</th><th>${isSpecial ? '场均命中' : '场均命中号码'}</th><th>${isSpecial ? '特码命中' : modeTitle(mode) + '命中'}</th><th>累计返奖(元)</th><th>ROI</th><th>当前连空</th><th>最长连空</th></tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="5">暂无数据</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="7">暂无数据</td></tr>'}</tbody>
         </table>
       </div>
       <div class="mc-sub">${isSpecial
         ? `特码：每注 ${size} 个号码里<b>包含开奖的最后一个号码（特码）</b>就算命中；各注命中率都在随机波动范围内，<b>不代表任何策略有优势</b>。`
         : `直选：每注 ${size} 个号必须<b>全部</b>落在 6 个正码里才算命中；各注命中率都在随机波动范围内，<b>不代表任何策略有优势</b>。`}</div>
+    </div>`;
+
+  const maxBucketRate = Math.max(1e-9, ...drought.combined.distribution.map((b) => b.rate));
+  const droughtCard = `
+    <div class="metric-card v-gold mc-wide">
+      <div class="mc-head"><span>连空体检 · 5 注合并口径</span><span class="mc-label">已回放 ${drought.periods} 期（命中筛选不影响本卡）</span></div>
+      <div class="mc-stat"><span class="mc-val">${drought.combined.currentDrought}</span><span class="mc-label">期当前连空 · ${rarity.label}（约 ${rarity.atLeast}% 的期次会空这么久）</span></div>
+      <div class="mc-bar"><div class="mc-fill" style="width:${Math.min(100, (drought.combined.currentDrought / Math.max(1, drought.combined.longestDrought)) * 100)}%"></div></div>
+      <div class="mc-grid">
+        <div><span class="mc-sm">历史最长连空</span><b>${drought.combined.longestDrought} 期</b></div>
+        <div><span class="mc-sm">间隔中位 / P90 / P95</span><b>${drought.combined.medianGap}/${drought.combined.p90Gap}/${drought.combined.p95Gap}</b></div>
+        <div><span class="mc-sm">5 注全空占比</span><b>${drought.combined.emptyRate}%</b></div>
+      </div>
+      <div class="drought-chart">
+        ${drought.combined.distribution.map((b) => `
+          <div class="dc-col" title="空 ${b.bucket} 期：${b.count} 次（${(b.rate * 100).toFixed(1)}%）">
+            <div class="dc-bar" style="height:${Math.max(2, (b.rate / maxBucketRate) * 100)}%"></div>
+            <div class="dc-label">${b.bucket}</div>
+          </div>`).join('')}
+      </div>
+      <div class="mc-sub">
+        上图 = 「两次命中之间空了几期」的分布（横轴：空档长度，纵轴：占比）。理论全空率 ${drought.combined.theoreticalEmptyRate}%（5 注平均覆盖 ${drought.combined.avgCoverage} 个号 → 每期至少中 1 注 ≈ ${drought.combined.theoreticalAnyHit}%）。
+        ⚠ 连空只是过去的记录：每期独立，空了 N 期之后下一期的命中率仍是 ${isSpecial ? '5/49 ≈ 10.2%' : formatPercent(baseline.hitProb, 3)}，不存在「该反弹了」。
+      </div>
     </div>`;
 
   $('histMetrics').innerHTML = [
@@ -1152,7 +1180,8 @@ function renderReplayMetrics() {
         <div><span class="mc-sm">ROI</span><b>${summary.totalRoi}%</b></div>
       </div>
       <div class="mc-sub">5 注合计（含随机对照注），仅供参考。</div>`),
-    compareCard
+    compareCard,
+    droughtCard
   ].join('');
 
   const catalog = summary.catalog.filter((c) => c.periods > 0);
@@ -1163,10 +1192,17 @@ function renderReplayMetrics() {
     : ev < 1
       ? `${formatPercent(ev, 1)}（长期为负）`
       : `${formatPercent(ev, 1)}（公平值）`;
+  // 「5 注至少中 1 注」的两个口径：独立近似（上界）与按实际去重的覆盖推算
+  const anyHit = anyHitBaseline(baseline, 5);
+  const coveredNow = drought.combined.avgCoverage || anyHit.coverageNumbers;
+  const anyHitText = `5 注至少中 1 注：<b>${formatPercent(coveredNow / 49, 2)}</b>（按实际去重后平均覆盖 ${coveredNow} 个号推算，实测 ${formatPercent(1 - drought.combined.emptyRate / 100, 2)}）；`
+    + `若 5 注号码完全不重复，理论上界是 ${formatPercent(anyHit.independent, 2)}（旧文档里的 41.6% 就是按这个假设算的）。`;
+
   const baselineText = isSpecial
     ? `<b>随机基线（特码 ${size} 个号）</b>：49 选 ${size}、开奖开出 1 个特码，单注命中概率 P = ${size}/49 = <b>${formatPercent(baseline.hitProb, 4)}</b>，
       理论公平赔率约 <b>${baseline.fairOdds}</b> 倍；当前赔率 ${odds} 倍对应期望回报率约 <b>${evText}</b>。
       每注平均命中概率 <b>${formatPercent(summary.expectedHits, 2)}</b>。
+      ${anyHitText}
       当前筛选范围各注平均观测命中 <b>${obs.toFixed(3)}%</b>。
       ⚠ 历史回放只是对既有数据的统计回测，彩票结果随机，<b>不能保证未来中奖</b>，也不构成投注建议。`
     : `<b>随机基线（直选 ${size} 码）</b>：49 选 ${size}、开出 6 个正码，单注命中概率 P = C(6,${size})/C(49,${size}) = <b>${formatPercent(baseline.hitProb, 4)}</b>，
@@ -1766,6 +1802,20 @@ function renderSyncPanel() {
   ].join('');
   const cnt = $('localCountSync');
   if (cnt) cnt.textContent = String(state.localDraws.length);
+
+  // 底库体检：坏行会列出来，但不会被自动「修好」（不猜测缺失号码）
+  const auditLine = $('auditLine');
+  if (auditLine) {
+    const report = auditDraws(state.allDraws);
+    auditLine.textContent = formatAuditSummary(report);
+    auditLine.classList.toggle('is-bad', report.issueCount > 0);
+    if (report.issueCount > 0) {
+      auditLine.innerHTML = `${escapeHtml(formatAuditSummary(report))}<ul class="audit-list">${report.issues
+        .slice(0, 6)
+        .map((i) => `<li>${escapeHtml(i.id)}（${escapeHtml(i.date)}）：${escapeHtml(i.message)}</li>`)
+        .join('')}</ul>`;
+    }
+  }
 }
 
 /** 直连远程开奖源的候选地址（浏览器跨域限制下会依次尝试代理） */

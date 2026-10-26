@@ -440,6 +440,20 @@ b { font-weight: 800; }
 .mc-grid .mc-sm { display: block; font-size: 0.68rem; color: var(--faint); margin-bottom: 2px; }
 .mc-grid b { font: 800 0.95rem Consolas, "Courier New", monospace; color: #334155; overflow-wrap: anywhere; white-space: nowrap; }
 .mc-sub { font-size: 0.72rem; color: var(--muted); margin-top: 8px; line-height: 1.6; }
+.mc-table td.is-warn, .mc-table td.is-warn b { color: #b45309; font-weight: 800; }
+
+/* 连空分布图：横轴 = 空档长度，纵轴 = 占比 */
+.drought-chart {
+  display: flex; align-items: flex-end; gap: 6px;
+  height: 74px; margin-top: 12px; padding: 6px 8px 0;
+  background: #f8fafc; border: 1px solid var(--line-soft); border-radius: 10px;
+}
+.dc-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 3px; }
+.dc-bar { width: 100%; max-width: 26px; background: linear-gradient(180deg, #f0c14b, #d4a017); border-radius: 3px 3px 0 0; }
+.dc-label { font: 700 0.62rem Consolas, "Courier New", monospace; color: var(--faint); white-space: nowrap; }
+.audit-line { font-size: 0.74rem; line-height: 1.7; color: var(--muted); }
+.audit-line.is-bad { color: #b45309; }
+.audit-list { margin: 6px 0 0; padding-left: 18px; font-size: 0.72rem; color: var(--muted); }
 
 .baseline-note {
   font-size: 0.78rem; color: var(--muted); line-height: 1.75;

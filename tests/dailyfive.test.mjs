@@ -17,9 +17,13 @@ import {
   RANDOM_EXPECTED_HITS,
   buildCustomRecords,
   buildDailyFiveRecords,
+  buildOmissionSeries,
+  cleanNumbers,
   computeDailyFiveFeatures,
   generateDailyFive,
+  omissionPercentile,
   randomExpectedHits,
+  reboundStrength,
   summarizeDailyFive
 } from '../src/dailyfive.js';
 import { getPriorDraws } from '../src/strategy.js';
@@ -334,4 +338,123 @@ test('buildCustomRecords：自选直选每期都用同一组号码，且不偷�
   assert.deepEqual(records5[0].five[0].numbers, [6, 26, 29, 32, 38]);
   assert.equal(records5[0].size, 5);
   assert.equal(buildCustomRecords(ALL, targets, { customNumbers: [1, 2, 3, 4], mode: 'special' }).length, 0);
+});
+
+/* -------------------------------------------------- 遗漏 bug 回归（2026-10-26） */
+
+test('buildOmissionSeries：当前遗漏 / 间距方向 / 最近一次出现都不能算反', () => {
+  // 8 号在第 0、2、3、4 期出现（最新在前），第 1 期没有 → 当前遗漏 0，间距 [1,0,0]
+  const rows = [];
+  for (let i = 0; i < 5; i++) {
+    const row = new Array(50).fill(0);
+    if (i !== 1) row[8] = 1;
+    rows.push(row);
+  }
+  const { omission, gapHistory, lastSeen } = buildOmissionSeries(rows, 5);
+  assert.equal(omission[8], 0, '最近一期就出现过，当前遗漏必须是 0');
+  assert.equal(lastSeen[8], 0);
+  assert.deepEqual(gapHistory[8], [1, 0, 0], '间距必须是正数且按新→旧排列');
+  assert.ok(gapHistory[8].every((g) => g >= 0), '间距不能出现负数（旧 bug 就是负数）');
+
+  // 9 号只在第 3 期出现 → 遗漏 3 期，没有间距样本
+  const rows2 = [];
+  for (let i = 0; i < 5; i++) {
+    const row = new Array(50).fill(0);
+    if (i === 3) row[9] = 1;
+    rows2.push(row);
+  }
+  const o2 = buildOmissionSeries(rows2, 5);
+  assert.equal(o2.omission[9], 3);
+  assert.deepEqual(o2.gapHistory[9], []);
+
+  // 号 10 从未出现 → 记满窗口
+  assert.equal(o2.omission[10], 5);
+  assert.equal(o2.lastSeen[10], -1);
+});
+
+test('omissionPercentile：分位数必须落在 0~1，且随当前遗漏单调不减', () => {
+  const gaps = [0, 1, 2, 5, 9];
+  assert.equal(omissionPercentile(gaps, 0), 0.2);
+  assert.equal(omissionPercentile(gaps, 4), 0.6);
+  assert.equal(omissionPercentile(gaps, 100), 1);
+  assert.equal(omissionPercentile([], 3), 1);
+  let prev = -1;
+  for (let cur = 0; cur <= 12; cur++) {
+    const p = omissionPercentile(gaps, cur);
+    assert.ok(p >= prev && p >= 0 && p <= 1);
+    prev = p;
+  }
+});
+
+test('computeDailyFiveFeatures：遗漏/分位与真实历史一致（防止再退回恒为 1）', () => {
+  const target = ALL.find((d) => d.id === '2026-287');
+  const prior = getPriorDraws(ALL, target);
+  const f = computeDailyFiveFeatures(prior, target);
+
+  const truthNormal = (n) => {
+    for (let i = 0; i < 180; i++) if (prior[i].numbers.slice(0, 6).map(Number).includes(n)) return i;
+    return 180;
+  };
+  const truthSpecial = (n) => {
+    for (let i = 0; i < Math.min(prior.length, 400); i++) if (Number(prior[i].special) === n) return i;
+    return Math.min(prior.length, 400);
+  };
+  for (let n = 1; n <= 49; n++) {
+    assert.equal(f.stats[n].omission, truthNormal(n), `${n} 号正码遗漏算错了`);
+    assert.equal(f.specialStats[n].omission, truthSpecial(n), `${n} 号特码遗漏算错了`);
+    assert.ok(f.stats[n].omissionPct >= 0 && f.stats[n].omissionPct <= 1);
+    assert.ok(f.stats[n].gapCount >= 0);
+  }
+  // 旧 bug 的两个症状：分位恒为 1、短休窗恒为 false
+  const pcts = new Set();
+  for (let n = 1; n <= 49; n++) pcts.add(f.stats[n].omissionPct.toFixed(3));
+  assert.ok(pcts.size > 5, `遗漏分位退化成了 ${pcts.size} 个取值`);
+  const shortRests = Array.from({ length: 49 }, (_, i) => f.stats[i + 1].isShortRest).filter(Boolean).length;
+  assert.ok(shortRests > 0, '短休回补窗（isShortRest）不该恒为 false');
+});
+
+test('遗漏分位分布要接近均匀（不能集中在 0 或 1）', () => {
+  const buckets = new Array(10).fill(0);
+  let total = 0;
+  for (const draw of ALL.slice(1, 19)) {
+    const f = computeDailyFiveFeatures(getPriorDraws(ALL, draw), draw);
+    for (let n = 1; n <= 49; n++) {
+      buckets[Math.min(9, Math.floor(f.stats[n].omissionPct * 10))]++;
+      total++;
+    }
+  }
+  for (const b of buckets) assert.ok(b / total > 0.02, `分位分布过于集中：${buckets.join(',')}`);
+});
+
+test('reboundStrength：80%~98% 递增，超过 98% 不再继续加码', () => {
+  assert.ok(reboundStrength(0) === 0);
+  assert.ok(reboundStrength(0.4) < reboundStrength(0.8));
+  assert.ok(reboundStrength(0.8) < reboundStrength(0.9));
+  assert.ok(reboundStrength(0.9) < reboundStrength(0.97));
+  assert.equal(reboundStrength(0.99), 1.2, '极端长空不该拿最高分');
+  assert.equal(reboundStrength(1), 1.2);
+  assert.ok(reboundStrength(0.97) > reboundStrength(1));
+});
+
+test('cleanNumbers：去重 + 过滤非法号码 + 只取前 limit 个', () => {
+  assert.deepEqual(cleanNumbers([15, 44, 27, 33, 33, 18]), [15, 44, 27, 33, 18]);
+  assert.deepEqual(cleanNumbers([1, 0, 50, 'x', 2, 3]), [1, 2, 3]);
+  assert.deepEqual(cleanNumbers([1, 2, 3, 4, 5, 6, 7], 6), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(cleanNumbers(null), []);
+});
+
+test('坏行（2022-132 正码重复）不会让同一个号被记两次频率', () => {
+  const badRow = ALL.find((d) => d.id === '2022-132');
+  assert.deepEqual(badRow.numbers, [15, 44, 27, 33, 33, 18]);
+  const target = ALL.find((d) => d.id === '2022-133');
+  const withBad = computeDailyFiveFeatures(getPriorDraws(ALL, target), target);
+  // 把坏行整期去掉后，统计口径应当基本一致（坏行被隔离，不参与统计）
+  const withoutBad = computeDailyFiveFeatures(
+    getPriorDraws(ALL, target).filter((d) => d.id !== '2022-132'),
+    target
+  );
+  assert.deepEqual(
+    Object.fromEntries(Object.keys(withBad.stats).map((n) => [n, withBad.stats[n].omission])),
+    Object.fromEntries(Object.keys(withoutBad.stats).map((n) => [n, withoutBad.stats[n].omission]))
+  );
 });

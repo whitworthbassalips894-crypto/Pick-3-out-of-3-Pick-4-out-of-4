@@ -30,6 +30,36 @@ export function comb(n, k) {
 }
 
 /**
+ * 「N 注里至少中 1 注」的概率
+ *
+ * 注意两个经典误区：
+ *   1. 直接把单注概率当独立事件连乘 `1-(1-p)^N` —— 只在 N 注号码**完全不重叠**时才成立；
+ *      实际 5 注会因为去重而共享号码，覆盖的号码数少于 N×size，真实概率要低一些；
+ *   2. 反过来用「覆盖号码数 / 49」当作精确值 —— 这是**线性上界**（并集概率），
+ *      仅在「命中事件彼此互斥」时相等，作为近似足够（误差 < 1 个百分点）。
+ *
+ * 所以这里两个都算出来，页面同时展示，并明确标注哪个是近似。
+ *
+ * @param {{ hitProb: number, size: number, population: number }} baseline
+ * @param {number} [tickets=5] 注数
+ * @returns {{ independent: number, coverage: number, coverageNumbers: number }}
+ *   independent：假设各注完全不重叠（理论上界）
+ *   coverage：按「每注 size 个号、互不重复」算出的并集近似
+ *   coverageNumbers：N 注理论最多覆盖的不同号码数
+ */
+export function anyHitBaseline(baseline, tickets = 5) {
+  const p = Number(baseline?.hitProb) || 0;
+  const size = Number(baseline?.size) || 0;
+  const population = Number(baseline?.population) || 49;
+  const coverageNumbers = Math.min(population, size * tickets);
+  return {
+    independent: 1 - (1 - p) ** tickets,
+    coverage: coverageNumbers / population,
+    coverageNumbers
+  };
+}
+
+/**
  * 把概率格式化为百分比字符串（保留 2 位小数）
  * @param {number} p 0~1
  * @param {number} [digits=2]
@@ -68,7 +98,10 @@ export function specialBaseline() {
     fairOdds: population / size,
     /** 每注平均覆盖的号码数（与命中概率同值） */
     expectedHits: hitProb,
-    /** 每期 5 注里至少中 1 注的概率（用于对照） */
+    /**
+     * 每期 5 注里至少中 1 注的概率：**假设 5 注号码互不重叠**的上界。
+     * 实际 5 注会共享部分号码（去重后平均覆盖 19 个号），真实值见 anyHitBaseline()。
+     */
     anyHitProb: 1 - (1 - hitProb) ** 5
   };
 }
@@ -106,7 +139,10 @@ export function directBaseline(mode = 3) {
     fairOdds,
     /** 场均命中号码数期望 */
     expectedHits: (marked * draws) / population,
-    /** 每期 5 注里至少中 1 注的概率（用于对照） */
+    /**
+     * 每期 5 注里至少中 1 注的概率：**假设 5 注号码互不重叠**的上界。
+     * 实际 5 注会共享部分号码（去重后平均覆盖 19 个号），真实值见 anyHitBaseline()。
+     */
     anyHitProb: 1 - (1 - hitProb) ** 5
   };
 }
