@@ -6,23 +6,23 @@
   <meta name="theme-color" content="#f6f8fb" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="description" content="六合彩每日 5 注：特码（1 中 1，赔 48）/ 三中三 / 四中四，1 注完全随机 + 4 注风格精选，附公平赔率对照与逐期回放。" />
-  <title>六合彩 · 每日 5 注</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r14" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r14" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r14" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r14" />
+  <meta name="description" content="六合彩每日 5 组：特码（1 中 1，每组 3 号 = 3 注，赔 48）/ 三中三 / 四中四，1 组完全随机 + 4 组风格精选，附公平赔率对照与逐期回放。" />
+  <title>六合彩 · 每日 5 组</title>
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r15" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r15" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r15" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r15" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.26-r14" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r15" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
-            每日 5 注
+            每日 5 组
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号">v2026.10.26-r14</span>
+            <span class="build-tag" id="buildTag" title="构建版本号">v2026.10.26-r15</span>
           </div>
           <div class="brand-subtitle" id="latestLine">正在读取底库…</div>
         </div>
@@ -52,12 +52,12 @@
       </div>
     </section>
 
-    <!-- ① 今日 5 注 -->
+    <!-- ① 今日 5 组 -->
     <section id="today" class="page-section">
       <div class="mode-switch" id="modeSwitch" role="tablist" aria-label="玩法切换">
-        <button type="button" class="seg-btn" data-mode="special" role="tab">特码 · 每注 1 号</button>
-        <button type="button" class="seg-btn" data-mode="pick3" role="tab">三中三 · 每注 3 号</button>
-        <button type="button" class="seg-btn" data-mode="pick4" role="tab">四中四 · 每注 4 号</button>
+        <button type="button" class="seg-btn" data-mode="special" role="tab">特码 · 每组 3 号（3 注）</button>
+        <button type="button" class="seg-btn" data-mode="pick3" role="tab">三中三 · 每组 3 号</button>
+        <button type="button" class="seg-btn" data-mode="pick4" role="tab">四中四 · 每组 4 号</button>
       </div>
 
       <div class="card hero-card">
@@ -71,8 +71,8 @@
             <button type="button" class="btn btn-sm" id="btnPrevPeriod" title="更早一期">◀</button>
             <button type="button" class="btn btn-sm" id="btnNextPeriod" title="更新一期">▶</button>
             <button type="button" class="btn btn-sm" id="btnNext">下一期</button>
-            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">📋 复制 5 注</button>
-            <button type="button" class="btn btn-sm" id="btnRerollRandom">🎲 重摇随机注</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnCopyAll">📋 复制 5 组</button>
+            <button type="button" class="btn btn-sm" id="btnRerollRandom">🎲 重摇随机组</button>
             <button type="button" class="btn btn-sm" id="btnResetRandom">恢复默认</button>
           </div>
         </div>
@@ -112,7 +112,7 @@
                 <th class="col-period">期号 / 日期</th>
                 <th class="col-balls">当期 6 正码</th>
                 <th class="col-special">特码</th>
-                <th class="col-hit">5 注逐注命中</th>
+                <th class="col-hit">5 组逐组命中</th>
                 <th class="col-res">本期中奖</th>
                 <th class="col-feat">详情</th>
               </tr>
@@ -169,7 +169,7 @@
         <div class="fold-body">
           <div class="cfg-fields">
             <label>单注本金（元）<input type="number" id="cfgStake" class="input-ctrl" min="1" step="1" value="10" /></label>
-            <label>特码赔率（倍）<input type="number" id="cfgOddsSpecial" class="input-ctrl" min="1" step="1" value="48" /></label>
+            <label>特码赔率（倍 · 1 注 1 个号）<input type="number" id="cfgOddsSpecial" class="input-ctrl" min="1" step="1" value="48" /></label>
             <label>三中三赔率（倍）<input type="number" id="cfgOdds3" class="input-ctrl" min="1" step="10" value="650" /></label>
             <label>四中四赔率（倍）<input type="number" id="cfgOdds4" class="input-ctrl" min="1" step="50" value="7500" /></label>
             <button type="button" class="btn btn-sm" id="btnResetCfg">恢复默认</button>
@@ -186,19 +186,19 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r14</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r15</p>
         </div>
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.26-r14</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r15</b> ·
         彩票每期独立，任何选号方法都不改变命中概率；本站只做数据整理与娱乐参考，请理性对待、量力而行。
       </p>
     </section>
   </main>
 
   <div class="mobile-copy-bar" id="mobileCopyBar">
-    <button type="button" class="btn btn-sm btn-primary" id="btnCopyAllMobile">📋 复制 5 注</button>
+    <button type="button" class="btn btn-sm btn-primary" id="btnCopyAllMobile">📋 复制 5 组</button>
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
@@ -281,6 +281,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.26-r14"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r15"></script>
 </body>
 </html>
