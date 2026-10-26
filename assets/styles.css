@@ -235,17 +235,50 @@ b { font-weight: 800; }
 .consensus-label { font-size: 0.8rem; font-weight: 800; color: var(--gold-deep); }
 .consensus-box .mini-ball { width: 26px; height: 26px; font-size: 11px; }
 
+/* 玩法切换（选三 / 选四） */
+.mode-switch {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; background: #f1f5f9;
+  padding: 4px; border-radius: 999px; border: 1px solid var(--line); margin: 0 0 12px;
+}
+.mode-switch .seg-btn { padding: 7px 16px; font-size: 0.82rem; }
+
 .five-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(268px, 100%), 1fr));
-  gap: 12px; margin-top: 12px;
+  display: grid; grid-template-columns: 1fr;
+  gap: 10px; margin-top: 12px;
 }
 .five-card {
-  background: #fbfcfe; border: 1px solid var(--line); border-radius: 12px;
-  padding: 13px 13px 11px; display: flex; flex-direction: column; gap: 9px;
+  background: #fbfcfe; border: 1px solid var(--line); border-left: 4px solid #94a3b8;
+  border-radius: 12px;
+  padding: 12px 14px 11px; display: flex; flex-direction: column; gap: 9px;
   min-width: 0;
 }
+.five-card:nth-child(1) { border-left-color: #3b82f6; }
+.five-card:nth-child(2) { border-left-color: #ef4444; }
+.five-card:nth-child(3) { border-left-color: #f59e0b; }
+.five-card:nth-child(4) { border-left-color: #8b5cf6; }
+.five-card:nth-child(5) { border-left-color: #10b981; }
 .five-card.is-random { background: #f8fafc; border-style: dashed; }
 .fc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.fc-idx {
+  background: #eef2f7; color: #334155; font-weight: 900; font-size: 0.7rem;
+  padding: 2px 7px; border-radius: 5px; white-space: nowrap;
+}
+.fc-actions { margin-left: auto; display: flex; gap: 6px; flex: 0 0 auto; }
+
+/* 宽屏：策略说明紧跟标题，复制 / 载入按钮靠右（与参考图一致） */
+@media (min-width: 720px) {
+  .fc-rationale { order: 1; }
+  .fc-actions { order: 10; }
+}
+.fc-body { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.fc-body .fc-balls { gap: 8px; flex: 0 0 auto; }
+.fc-body .fc-shape { flex: 1 1 240px; justify-content: flex-end; }
+.fc-rationale {
+  font-size: 0.74rem; color: var(--muted); line-height: 1.6; margin: 0;
+  flex: 1 1 240px; min-width: 0; order: 9;
+}
+.fc-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fc-foot:empty { display: none; }
 .fc-icon { font-size: 1.05rem; line-height: 1; }
 .fc-code {
   background: var(--ink); color: #fff; font-weight: 900; font-size: 0.7rem;
@@ -253,7 +286,7 @@ b { font-weight: 800; }
 }
 .five-card.is-random .fc-code { background: #64748b; }
 .fc-name { font-weight: 800; font-size: 0.9rem; }
-.fc-head .tag { margin-left: auto; }
+.fc-head .tag { margin-left: 0; }
 .fc-balls { display: flex; flex-wrap: wrap; gap: 6px; }
 .fc-shape {
   display: flex; flex-wrap: wrap; gap: 4px 9px;

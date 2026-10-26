@@ -95,6 +95,25 @@ test('旧版本键名可以迁移到规范键名，且不删除旧数据', () =>
   assert.ok(storage.getItem('mark6_pick3_config') != null);
 });
 
+test('配置里的玩法（targetSize）只接受 3 或 4，其它值回落默认', () => {
+  const cfg = (raw) => sanitizeConfig(raw, DEFAULT_CONFIG).config;
+  assert.equal(cfg({ targetSize: 4 }).targetSize, 4);
+  assert.equal(cfg({ targetSize: 3 }).targetSize, 3);
+  assert.equal(cfg({ targetSize: 7 }).targetSize, DEFAULT_CONFIG.targetSize);
+  assert.equal(cfg({ targetSize: '四' }).targetSize, DEFAULT_CONFIG.targetSize);
+  assert.equal(cfg({}).targetSize, DEFAULT_CONFIG.targetSize);
+  assert.equal(DEFAULT_CONFIG.targetSize, 3);
+});
+
+test('玩法配置能正常读写并迁移', () => {
+  const storage = createMemoryStorage({
+    [STORAGE_KEYS.CONFIG]: JSON.stringify({ stake: 20, odds3: 650, odds4: 7500, targetSize: 4 })
+  });
+  const state = loadPersistedState(storage, opts);
+  assert.equal(state.config.targetSize, 4);
+  assert.equal(state.config.stake, 20);
+});
+
 test('兜底扫描只认带本工具标识（pick3/pk3）的键名', () => {
   const storage = createMemoryStorage({
     mytool_pick3_draws_v0: JSON.stringify([

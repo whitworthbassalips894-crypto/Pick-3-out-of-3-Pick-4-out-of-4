@@ -9,7 +9,7 @@
  * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
  * 由 tests/build-version.test.mjs 自动校验三处一致性。
  */
-export const APP_BUILD = '2026.10.26-r5';
+export const APP_BUILD = '2026.10.26-r6';
 
 /** 页面上显示的版本标签 */
 export const APP_VERSION_LABEL = `v${APP_BUILD}`;
@@ -126,11 +126,10 @@ export function padPeriod(period) {
  * 默认收益与系统配置
  */
 export const DEFAULT_CONFIG = {
-  stake: 10, // 默认单注本金 10 元
+  stake: 10, // 默认单注本金 10 元（直选：每注 1 注投注）
   odds3: 650, // 默认三中三赔率 650 倍
   odds4: 7500, // 默认四中四赔率 7500 倍
   hitRule: 'normal_6_only', // 严格按传统连码规则：仅核对前 6 个正码（平一～平六）
-  schemeMode: 'both_modes', // 双模式兼顾：7码复式全展开 + 5组策略推荐可切换
-  activePlayType: 'pick3', // 'pick3' (三中三) | 'pick4' (四中四) | 'both'
+  targetSize: 3, // 直选玩法：3 = 三中三（每注 3 个号），4 = 四中四（每注 4 个号）
   remoteSourceUrl: 'https://2026kj.zkclhb.com:2025/am.html'
 };

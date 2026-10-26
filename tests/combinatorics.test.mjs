@@ -3,18 +3,17 @@ import assert from 'node:assert/strict';
 import {
   binomial,
   combinations,
-  evaluate7CodeCompound,
-  evaluateDirectTickets
+  evaluateDirectTickets,
+  normalizeNumbers
 } from '../src/combinatorics.js';
 
-test('binomial & combinations C(7,3)=35 and C(7,4)=35', () => {
-  assert.equal(binomial(7, 3), 35);
-  assert.equal(binomial(7, 4), 35);
+test('binomial & combinations 的组合数计算正确', () => {
   assert.equal(binomial(6, 3), 20);
   assert.equal(binomial(5, 3), 10);
   assert.equal(binomial(4, 3), 4);
   assert.equal(binomial(3, 3), 1);
   assert.equal(binomial(2, 3), 0);
+  assert.equal(binomial(6, 4), 15);
 
   const seven = [3, 14, 22, 26, 31, 43, 45];
   const c3 = combinations(seven, 3);
@@ -25,49 +24,13 @@ test('binomial & combinations C(7,3)=35 and C(7,4)=35', () => {
   assert.deepEqual(c3[34], [31, 43, 45]);
 });
 
-test('evaluate7CodeCompound hit table for k = 0..6 normal balls', () => {
-  const picks = [1, 2, 3, 4, 5, 6, 7];
-  const expected3 = [0, 0, 0, 1, 4, 10, 20];
-  const expected4 = [0, 0, 0, 0, 1, 5, 15];
-
-  for (let k = 0; k <= 6; k++) {
-    // 构造恰有 k 个正码命中的开奖结果
-    const hitPart = picks.slice(0, k);
-    const missPart = [20, 21, 22, 23, 24, 25].slice(0, 6 - k);
-    const draw = {
-      numbers: [...hitPart, ...missPart],
-      special: 49
-    };
-
-    const res = evaluate7CodeCompound(picks, draw, { stake: 10, odds3: 650, odds4: 7500 });
-    assert.equal(res.matchedNormalCount, k);
-    assert.equal(res.pick3.winCount, expected3[k]);
-    assert.equal(res.pick4.winCount, expected4[k]);
-    assert.equal(res.pick3.cost, 350);
-    assert.equal(res.pick3.payout, expected3[k] * 10 * 650);
-    assert.equal(res.pick3.netProfit, res.pick3.payout - 350);
-    assert.equal(res.pick4.payout, expected4[k] * 10 * 7500);
-  }
+test('normalizeNumbers 去重、排序、限量', () => {
+  assert.deepEqual(normalizeNumbers([5, '5', 3, 99, 0, -1, 12], { sort: true, maxCount: 3 }), [3, 5, 12]);
+  assert.deepEqual(normalizeNumbers([7, 2], { sort: false }), [7, 2]);
+  assert.deepEqual(normalizeNumbers(null), []);
 });
 
-test('strictly excludes special ball (特码) from 三中三 and 四中四 hits', () => {
-  const picks = [10, 14, 23, 26, 31, 43, 45];
-  // 仅命中 2 个正码 (14, 26)，而特码 23 虽然在选号中，但绝不能计入三中三
-  const draw = {
-    numbers: [14, 26, 1, 2, 3, 4],
-    special: 23
-  };
-
-  const res = evaluate7CodeCompound(picks, draw, { stake: 10, odds3: 650, odds4: 7500 });
-  assert.equal(res.matchedNormalCount, 2);
-  assert.deepEqual(res.matchedNormals, [14, 26]);
-  assert.equal(res.specialMatched, true);
-  assert.equal(res.pick3.winCount, 0);
-  assert.equal(res.pick4.winCount, 0);
-  assert.equal(res.pick3.netProfit, -350);
-});
-
-test('evaluateDirectTickets correctly scores 5 recommended Pick-3 and Pick-4 sets', () => {
+test('直选：三中三要求 3 个号全部命中，返奖 = 本金 × 赔率', () => {
   const tickets3 = [
     [3, 14, 26],
     [14, 31, 43],
@@ -81,8 +44,24 @@ test('evaluateDirectTickets correctly scores 5 recommended Pick-3 and Pick-4 set
   };
   const res = evaluateDirectTickets(tickets3, draw, { stake: 10, odds3: 650, targetSize: 3 });
   assert.equal(res.totalBets, 5);
-  assert.equal(res.winCount, 2); // [3,14,26] and [14,31,43] both hit
+  assert.equal(res.winCount, 2); // [3,14,26] 与 [14,31,43] 全中
   assert.equal(res.cost, 50);
   assert.equal(res.payout, 2 * 10 * 650);
   assert.equal(res.netProfit, 13000 - 50);
+});
+
+test('直选：四中四要求 4 个号全部命中，特码永远不计入', () => {
+  const draw = { numbers: [14, 26, 31, 43, 7, 9], special: 23 };
+  const tickets = [
+    [14, 26, 31, 43], // 全中
+    [14, 26, 31, 23], // 23 是特码，不算命中
+    [14, 26, 31, 45]  // 45 不在正码里，差 1 个
+  ];
+  const res = evaluateDirectTickets(tickets, draw, { stake: 10, odds4: 7500, targetSize: 4 });
+  assert.equal(res.totalBets, 3);
+  assert.equal(res.winCount, 1);
+  assert.equal(res.cost, 30);
+  assert.equal(res.payout, 1 * 10 * 7500);
+  assert.deepEqual(res.details[1].hitNums, [14, 26, 31]);
+  assert.equal(res.details[1].isWin, false);
 });

@@ -149,10 +149,38 @@ test('页面结构：每日 5 注（1 随机 + 4 精选）+ 共识号，且已�
   assert.ok(html.includes('详情'));
 });
 
-test('回放方案下拉只有「每日 5 注」与「当前自选 7 码」两种', () => {
+test('回放方案下拉只有「每日 5 注」与「当前自选号码」两种', () => {
   const html = read('index.html');
   const block = /<select id="histStrategy"[\s\S]*?<\/select>/.exec(html);
   assert.ok(block, '必须有 histStrategy 下拉');
   const values = [...block[0].matchAll(/value="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(values, ['daily5', 'custom']);
+  assert.ok(block[0].includes('当前自选号码'), '方案名称应改成「当前自选号码」');
+});
+
+test('Service Worker 的外壳清单覆盖 app.js 的全部本地依赖（离线可用）', () => {
+  const sw = read('sw.js');
+  const app = read('src/app.js');
+  const imports = [...app.matchAll(/from '\.\/([a-z0-9_-]+\.js)'/g)].map((m) => m[1]);
+  assert.ok(imports.length >= 5, 'app.js 至少有若干本地模块依赖');
+  for (const mod of imports) {
+    assert.ok(sw.includes(`'./src/${mod}'`), `离线外壳清单必须包含 src/${mod}`);
+  }
+});
+
+test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', () => {
+  const html = read('index.html');
+  // 玩法切换
+  assert.ok(html.includes('id="modeSwitch"'), '必须有玩法切换控件');
+  assert.ok(html.includes('data-size="3"'), '必须能切到选三');
+  assert.ok(html.includes('data-size="4"'), '必须能切到选四');
+  assert.ok(html.includes('选三 · 三中三'), '要有选三玩法标签');
+  assert.ok(html.includes('选四 · 四中四'), '要有选四玩法标签');
+  // 旧版复式结构必须彻底移除
+  for (const gone of ['id="comboGrid"', 'id="comboTabs"', 'id="foldCombos"', 'id="histMode"', 'id="pinnedPicks"']) {
+    assert.ok(!html.includes(gone), `旧结构 ${gone} 必须移除`);
+  }
+  // 页面文案里不该再出现复式 / 35 注
+  assert.ok(!html.includes('35 注'), '页面不应再出现 35 注复式');
+  assert.ok(!html.includes('胆码'), '页面不应再出现胆码');
 });

@@ -1,16 +1,15 @@
 /**
- * 六合彩「7码复式 · 三中三 / 四中四」公共推荐件
+ * 六合彩「直选 · 三中三 / 四中四」公共推荐件
  *
- * 说明：早期的 S1~S5 五组策略已下线，改为「每日 5 注」模式
- *      （1 注纯随机 + 4 注精选），具体引擎见 src/dailyfive.js。
+ * 说明：选号模型为「每日 5 注」直选（1 注纯随机 + 4 注精选），每注就是
+ *      3 个号码（三中三）或 4 个号码（四中四），具体引擎见 src/dailyfive.js。
  *      本模块只保留与策略无关的公共能力：
  *        - getPriorDraws：取严格早于目标期的历史（无未来函数的地基）
- *        - selectFeaturedCombinations：从 7 码里挑 5 注三中三 / 5 注四中四
- *        - selectBalanced7Numbers：按分数选 7 码（带区间/波色/奇偶平衡）
+ *        - selectDirectNumbers：按分数直选 N 个号码（带三区/波色/奇偶平衡）
  */
 
 import { ALL_NUMBERS } from './constants.js';
-import { combinations, normalizeNumbers } from './combinatorics.js';
+import { normalizeNumbers } from './combinatorics.js';
 
 /**
  * 过滤出严格早于目标期号的历史开奖记录（假设 draws 按时间降序排列，最新在前）
@@ -34,29 +33,50 @@ export function getPriorDraws(allDraws, target) {
 }
 
 /**
- * 在保证三区/波色/奇偶相对均衡的前提下，从候选评分中选出 7 个号码
- * @param {Record<number, number>} scoreMap
+ * 在保证三区/波色/奇偶相对均衡的前提下，从候选评分中直选 N 个号码
+ *
+ * 直选模型（size = 3 → 三中三，size = 4 → 四中四）：
+ *   - 每注只推 size 个号码，命中判定 = 这 size 个号全部落在 6 个正码里；
+ *   - size = 3 时尽量做到三区 1-1-1；size = 4 时做到 2-1-1；
+ *   - 奇偶尽量接近对半、波色不集中在单一颜色。
+ *
+ * @param {Record<number, number>} scoreMap 号码 → 策略分数
  * @param {{ stats: Record<number, object>, pairCount: Uint16Array[] }} features
- * @param {{ pinned?: number[], quota?: boolean, usedElsewhere?: Set<number> }} [opts]
- * @returns {number[]}
+ * @param {{ size?: number, pinned?: number[], quota?: boolean, usedElsewhere?: Set<number> }} [opts]
+ * @returns {number[]} 升序排列的号码
  */
-export function selectBalanced7Numbers(scoreMap, features, opts = {}) {
-  const { stats, pairCount } = features;
+export function selectDirectNumbers(scoreMap, features, opts = {}) {
+  const { stats = {}, pairCount } = features || {};
+  // 特征缺失时用中性兜底，避免页面因数据不全而崩
+  const statOf = (n) => stats[n] || {
+    num: n,
+    color: 'red',
+    zone: n <= 16 ? 1 : n <= 33 ? 2 : 3,
+    odd: n % 2 === 1,
+    tail: n % 10
+  };
+  const size = Math.max(2, Math.min(6, Math.trunc(Number(opts.size ?? 3))));
   const { quota = false, usedElsewhere = new Set() } = opts;
-  const chosen = normalizeNumbers(opts.pinned || [], { sort: false, maxCount: 7 });
+
+  // 每注允许的同区/同色上限：3 码注不许两码同区，4 码注最多两码同区
+  const maxPerZone = size <= 3 ? 1 : 2;
+  const maxPerColor = size <= 3 ? 1 : 2;
+
+  const chosen = normalizeNumbers(opts.pinned || [], { sort: false, maxCount: size });
   const chosenSet = new Set(chosen);
   const candidates = ALL_NUMBERS.filter((n) => !chosenSet.has(n)).sort(
-    (a, b) => scoreMap[b] - scoreMap[a]
+    (a, b) => (scoreMap[b] || 0) - (scoreMap[a] || 0)
   );
 
-  while (chosen.length < 7 && candidates.length > 0) {
+  while (chosen.length < size && candidates.length > 0) {
     const zoneCounts = { 1: 0, 2: 0, 3: 0 };
     const colorCounts = { red: 0, blue: 0, green: 0 };
     let oddCount = 0;
     for (const c of chosen) {
-      zoneCounts[stats[c].zone]++;
-      colorCounts[stats[c].color]++;
-      if (stats[c].odd) oddCount++;
+      const st = statOf(c);
+      zoneCounts[st.zone]++;
+      colorCounts[st.color]++;
+      if (st.odd) oddCount++;
     }
 
     let bestIdx = 0;
@@ -65,50 +85,39 @@ export function selectBalanced7Numbers(scoreMap, features, opts = {}) {
     const searchLimit = Math.min(candidates.length, 24);
     for (let i = 0; i < searchLimit; i++) {
       const cand = candidates[i];
-      const st = stats[cand];
-      let dynScore = scoreMap[cand];
+      const st = statOf(cand);
+      let dynScore = scoreMap[cand] || 0;
 
       // 与已选号码的历史共现加分
-      let pairBonus = 0;
-      for (const c of chosen) {
-        pairBonus += pairCount[cand][c] * 0.4;
+      if (chosen.length >= 1) {
+        for (const c of chosen) dynScore += (pairCount?.[cand]?.[c] || 0) * 0.35;
       }
-      dynScore += pairBonus;
-
       // 同尾 / 连号协同
       if (chosen.length >= 2) {
-        if (chosen.some((c) => c % 10 === st.tail)) dynScore += 0.55;
-        if (chosen.some((c) => Math.abs(c - cand) === 1)) dynScore += 0.45;
+        if (chosen.some((c) => c % 10 === st.tail)) dynScore += 0.4;
+        if (chosen.some((c) => Math.abs(c - cand) === 1)) dynScore += 0.35;
       }
 
-      // 区间均衡奖励（避免 7 个号全挤在同一区）
-      if (zoneCounts[st.zone] === 0) dynScore += 1.3;
-      else if (zoneCounts[st.zone] >= 3) dynScore -= 1.7;
+      // 三区均衡：空区加分，超限减分（3 码注自然收敛成 1-1-1）
+      if (zoneCounts[st.zone] === 0) dynScore += 1.1;
+      else if (zoneCounts[st.zone] >= maxPerZone) dynScore -= 1.8;
 
-      // 波色均衡奖励（避免单一波色超过 3 个）
-      if (colorCounts[st.color] === 0) dynScore += 1.0;
-      else if (colorCounts[st.color] >= 3) dynScore -= 1.4;
+      // 波色均衡
+      if (colorCounts[st.color] === 0) dynScore += 0.7;
+      else if (colorCounts[st.color] >= maxPerColor) dynScore -= 1.1;
 
-      // 奇偶均衡
-      if (oddCount >= 5) dynScore -= st.odd ? 0.9 : 0;
-      if (oddCount <= 1) dynScore += st.odd ? 0.9 : 0;
-
-      // 等隔韵律：间距接近时小幅加分
-      if (chosen.length >= 3) {
-        const gaps = chosen.map((c) => Math.abs(c - cand)).filter((g) => g > 0).sort((a, b) => a - b);
-        if (gaps.length) {
-          const med = gaps[Math.floor(gaps.length / 2)];
-          if (med >= 2 && Math.abs(med - 4) <= 2) dynScore += 0.35;
-        }
-      }
+      // 奇偶均衡：尽量接近对半
+      const targetOdd = size % 2 === 0 ? size / 2 : (size + 1) / 2;
+      if (oddCount >= targetOdd && st.odd) dynScore -= 0.85;
+      if (oddCount < targetOdd && !st.odd) dynScore -= 0.85;
 
       // 跨注去重
       if (usedElsewhere.has(cand)) dynScore -= 0.9;
 
+      // 均衡注额外按配额再推一把
       if (quota) {
-        const zoneQuota = { 1: 3, 2: 2, 3: 2 };
-        if (zoneCounts[st.zone] < zoneQuota[st.zone]) dynScore += 0.8;
-        if (oddCount < 4 && st.odd) dynScore += 0.5;
+        const zoneQuota = { 1: 2, 2: 1, 3: 1 };
+        if (zoneCounts[st.zone] < zoneQuota[st.zone]) dynScore += 0.6;
       }
 
       if (dynScore > bestDynamicScore) {
@@ -123,103 +132,4 @@ export function selectBalanced7Numbers(scoreMap, features, opts = {}) {
   }
 
   return chosen.sort((a, b) => a - b);
-}
-
-/**
- * 从 7 码复式（共 35 注三中三、35 注四中四）中优选出得分最高的 5 注三中三与 5 注四中四
- * @param {Array<number|string>} sevenNumbers
- * @param {Record<number, number>} scoreMap
- * @param {Uint16Array[]} [pairCount]
- * @returns {{ top5Pick3: number[][], top5Pick4: number[][] }}
- */
-export function selectFeaturedCombinations(sevenNumbers, scoreMap, pairCount) {
-  const nums = normalizeNumbers(sevenNumbers, { sort: true, maxCount: 7 });
-  const all3 = combinations(nums, 3);
-  const all4 = combinations(nums, 4);
-
-  const scored3 = all3
-    .map((triplet) => {
-      const [a, b, c] = triplet;
-      const base = (scoreMap[a] || 1) + (scoreMap[b] || 1) + (scoreMap[c] || 1);
-      const synergy =
-        ((pairCount?.[a]?.[b] || 0) + (pairCount?.[a]?.[c] || 0) + (pairCount?.[b]?.[c] || 0)) *
-        0.8;
-      // 区间跨度奖励：覆盖至少 2 个区间
-      const zones = new Set([
-        a <= 16 ? 1 : a <= 33 ? 2 : 3,
-        b <= 16 ? 1 : b <= 33 ? 2 : 3,
-        c <= 16 ? 1 : c <= 33 ? 2 : 3
-      ]).size;
-      return {
-        nums: triplet,
-        score: Number((base + synergy + zones * 0.9).toFixed(2))
-      };
-    })
-    .sort((x, y) => y.score - x.score);
-
-  // 挑选前 5 注三中三（兼顾号码覆盖度，避免 5 注全围绕同 2 个号）
-  const top5Pick3 = [];
-  const usedCount3 = {};
-  for (const item of scored3) {
-    if (top5Pick3.length >= 5) break;
-    const overloaded = item.nums.some((n) => (usedCount3[n] || 0) >= 3);
-    if (!overloaded || scored3.length <= 5) {
-      top5Pick3.push(item.nums);
-      item.nums.forEach((n) => {
-        usedCount3[n] = (usedCount3[n] || 0) + 1;
-      });
-    }
-  }
-  for (const item of scored3) {
-    if (top5Pick3.length >= 5) break;
-    const key = item.nums.join(',');
-    if (!top5Pick3.some((t) => t.join(',') === key)) {
-      top5Pick3.push(item.nums);
-    }
-  }
-
-  const scored4 = all4
-    .map((quad) => {
-      const [a, b, c, d] = quad;
-      const base =
-        (scoreMap[a] || 1) + (scoreMap[b] || 1) + (scoreMap[c] || 1) + (scoreMap[d] || 1);
-      const synergy =
-        ((pairCount?.[a]?.[b] || 0) +
-          (pairCount?.[a]?.[c] || 0) +
-          (pairCount?.[a]?.[d] || 0) +
-          (pairCount?.[b]?.[c] || 0) +
-          (pairCount?.[b]?.[d] || 0) +
-          (pairCount?.[c]?.[d] || 0)) *
-        0.65;
-      return {
-        nums: quad,
-        score: Number((base + synergy).toFixed(2))
-      };
-    })
-    .sort((x, y) => y.score - x.score);
-
-  const top5Pick4 = [];
-  const usedCount4 = {};
-  for (const item of scored4) {
-    if (top5Pick4.length >= 5) break;
-    const overloaded = item.nums.some((n) => (usedCount4[n] || 0) >= 3);
-    if (!overloaded || scored4.length <= 5) {
-      top5Pick4.push(item.nums);
-      item.nums.forEach((n) => {
-        usedCount4[n] = (usedCount4[n] || 0) + 1;
-      });
-    }
-  }
-  for (const item of scored4) {
-    if (top5Pick4.length >= 5) break;
-    const key = item.nums.join(',');
-    if (!top5Pick4.some((t) => t.join(',') === key)) {
-      top5Pick4.push(item.nums);
-    }
-  }
-
-  return {
-    top5Pick3,
-    top5Pick4
-  };
 }

@@ -1,14 +1,14 @@
 /**
- * 统计基线工具：超几何分布（Hypergeometric Distribution）
+ * 统计基线工具：直选（三中三 / 四中四）的随机基线
  *
- * 背景：本工具的玩法是「先选 7 个号码（49 选 7），开奖开出 6 个正码（平一～平六）」，
- *      命中个数 k 服从超几何分布，而不是 222.html 特码工具那种「7/49 单号覆盖」的二项分布。
+ * 玩法口径（直选）：49 选 size（3 = 三中三，4 = 四中四），每期开出 6 个正码（平一～平六）。
+ * 一注命中 = 这 size 个号码**全部**落在 6 个正码里：
+ *   P(中3) = C(6,3) / C(49,3) = 20 / 18424 ≈ 0.1086%
+ *   P(中4) = C(6,4) / C(49,4) = 15 / 211876 ≈ 0.00708%
+ * 理论公平赔率 = C(49,size) / C(6,size) ≈ 921 倍（选三）/ 14125 倍（选四）
  *
- *      P(k) = C(7, k) * C(42, 6 - k) / C(49, 6)
- *      P(k >= 3) ≈ 3.0951%   （三中三命中概率基线）
- *      P(k >= 4) ≈ 0.2219%   （四中四命中概率基线）
- *
- * 统计表述必须严谨：历史回放只是对既有数据的回测，不能理解为「未来必中」。
+ * 统计表述必须严谨：历史回放只是对既有数据的回测，彩票结果随机，不能理解为「未来必中」；
+ * 当前赔率对应的期望回报率长期小于 1，页面必须如实呈现，不美化亏损。
  */
 
 /**
@@ -30,67 +30,6 @@ export function comb(n, k) {
 }
 
 /**
- * 超几何分布概率质量函数 P(X = k)
- * @param {number} k 命中个数
- * @param {number} population 总号码数（49）
- * @param {number} marked 已选号码数（7）
- * @param {number} draws 开出的号码数（6 个正码）
- * @returns {number}
- */
-export function hypergeometricPmf(k, population, marked, draws) {
-  const K = Math.trunc(Number(k));
-  const N = Math.trunc(Number(population));
-  const M = Math.trunc(Number(marked));
-  const n = Math.trunc(Number(draws));
-  if (K < 0 || K > M || K > n || K > N - M) return 0;
-  return (comb(M, K) * comb(N - M, n - K)) / comb(N, n);
-}
-
-/**
- * 超几何分布右尾概率 P(X >= minK)
- * @param {number} minK
- * @param {number} population
- * @param {number} marked
- * @param {number} draws
- * @returns {number}
- */
-export function hypergeometricTail(minK, population, marked, draws) {
-  const M = Math.trunc(Number(marked));
-  const n = Math.trunc(Number(draws));
-  const start = Math.max(0, Math.trunc(Number(minK)));
-  let sum = 0;
-  for (let k = start; k <= Math.min(M, n); k++) {
-    sum += hypergeometricPmf(k, population, marked, draws);
-  }
-  return sum;
-}
-
-/**
- * 「49 选 7，开 6 个正码」随机基线
- * 用于把回测命中率与纯随机选号的期望做对照，避免把回测包装成「保证中奖」。
- */
-export const RANDOM_BASELINE_7_CODE = (() => {
-  const population = 49;
-  const marked = 7;
-  const draws = 6;
-  const distribution = [];
-  for (let k = 0; k <= Math.min(marked, draws); k++) {
-    distribution.push({ k, p: hypergeometricPmf(k, population, marked, draws) });
-  }
-  return {
-    population,
-    marked,
-    draws,
-    expectedHits: (marked * draws) / population,
-    distribution,
-    /** P(k >= 3)：三中三命中基线 */
-    pick3: hypergeometricTail(3, population, marked, draws),
-    /** P(k >= 4)：四中四命中基线 */
-    pick4: hypergeometricTail(4, population, marked, draws)
-  };
-})();
-
-/**
  * 把概率格式化为百分比字符串（保留 2 位小数）
  * @param {number} p 0~1
  * @param {number} [digits=2]
@@ -100,4 +39,54 @@ export function formatPercent(p, digits = 2) {
   const v = Number(p);
   if (!Number.isFinite(v)) return '—';
   return `${(v * 100).toFixed(digits)}%`;
+}
+
+/* ------------------------------------------------------------------ 直选 */
+
+/**
+ * 直选基线：三中三（选 3 个号）/ 四中四（选 4 个号）
+ *
+ * 玩法：49 选 size，开奖开出 6 个正码（平一～平六），命中 = size 个号全部落在正码里。
+ * 期望回报率 = 赔率 × 命中概率（直选长期必然低于 1，页面必须如实呈现）。
+ *
+ * @param {number} size 3 = 三中三，4 = 四中四
+ */
+export function directBaseline(size = 3) {
+  const population = 49;
+  const draws = 6;
+  const marked = Math.trunc(Number(size)) === 4 ? 4 : 3;
+  const hitProb = comb(draws, marked) / comb(population, marked);
+  const fairOdds = comb(population, marked) / comb(draws, marked);
+  return {
+    size: marked,
+    population,
+    draws,
+    marked,
+    /** 单注命中概率 */
+    hitProb,
+    /** 理论公平赔率（1 : 1 的公平值） */
+    fairOdds,
+    /** 场均命中号码数期望 */
+    expectedHits: (marked * draws) / population,
+    /** 每期 5 注里至少中 1 注的概率（用于对照） */
+    anyHitProb: 1 - (1 - hitProb) ** 5
+  };
+}
+
+/** 三中三直选基线 */
+export const DIRECT_BASELINE_3 = directBaseline(3);
+/** 四中四直选基线 */
+export const DIRECT_BASELINE_4 = directBaseline(4);
+
+/**
+ * 按当前赔率计算期望回报率（赔率 × 命中概率）
+ * @param {number} size
+ * @param {number} odds
+ * @returns {number} 0~1 之间的期望回报比例（1 = 公平）
+ */
+export function expectedReturnRate(size = 3, odds = 650) {
+  const base = directBaseline(size);
+  const o = Number(odds);
+  if (!Number.isFinite(o) || o <= 0) return 0;
+  return base.hitProb * o;
 }
