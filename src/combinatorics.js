@@ -5,8 +5,9 @@
  * 直选口径：一张注单 = size 个号码（3 = 三中三，4 = 四中四），
  * 这 size 个号码**全部**落在 6 个正码里才算命中，返奖 = 本金 × 赔率。
  *
- * 特码口径（1 中 1）：一张注单 = **1 个号码**，开奖的**最后一个号码（特码）**正好等于它也就算命中，
- * 返奖 = 本金 × 特码赔率（市面常见 48 倍）；6 个正码不参与特码玩法的判定。
+ * 特码口径（1 中 1）：**1 个号码 = 1 注**。开奖的**最后一个号码（特码）**等于注里的某个号码，
+ * 那个号码就中，返奖 = 命中号码个数 × 本金 × 特码赔率（市面常见 48 倍）；
+ * 6 个正码不参与特码玩法的判定。一个选项给几个号就是几注（本工具每组 3 个号 = 3 注）。
  */
 
 import { DEFAULT_CONFIG } from './constants.js';
@@ -174,48 +175,58 @@ export function evaluateDirectTickets(tickets, draw, userConfig = {}) {
 }
 
 /**
- * 核对一组「特码」注单（每注 1 个号码，1 中 1）
+ * 核对一组「特码」注单（1 中 1：**1 个号码 = 1 注**）
  *
- * 命中规则：开奖的最后一个号码（特码）正好等于这 1 个号码即算命中；
- * 6 个正码不参与判定，特码也不计入正码命中。
+ * 命中规则：开奖的最后一个号码（特码）等于注里的某个号码，那个号码就中；
+ * 6 个正码不参与判定。一个选项给了几个号就是几注，中几个号就返几份：
+ *   成本 = 号码个数 × 本金
+ *   返奖 = 命中号码个数 × 本金 × 赔率
  *
- * @param {Array<Array<number|string>>} tickets 每注 1 个号码
+ * @param {Array<Array<number|string>>} tickets 每个选项一组号码（1~N 个号，每个号 1 注）
  * @param {{ numbers?: number[], special?: number } | null} draw 开奖结果
  * @param {{ stake?: number, oddsSpecial?: number, targetSize?: number }} [userConfig]
+ *        targetSize：每个选项最多几个号（默认不截断，按传入号码算）
  */
 export function evaluateSpecialTickets(tickets, draw, userConfig = {}) {
   const stake = Math.max(0, Number(userConfig.stake ?? DEFAULT_CONFIG.stake));
   const odds = Math.max(0, Number(userConfig.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial ?? 48));
+  const rawSize = Math.trunc(Number(userConfig.targetSize ?? userConfig.size ?? 0));
+  const maxSize = rawSize > 0 ? Math.min(49, rawSize) : 49;
 
   const { normalList, special } = extractDrawNormals(draw);
   const hasSpecial = Number.isInteger(special) && special >= 1 && special <= 49;
 
+  // 关键：不再按「每注 5 个号」过滤。每个号码都是独立的一注，号码个数 = 注数。
   const normalizedTickets = (Array.isArray(tickets) ? tickets : [])
-    .map((t) => normalizeNumbers(t, { sort: true }))
-    .filter((t) => t.length === 5);
+    .map((t) => normalizeNumbers(t, { sort: true, maxCount: maxSize }))
+    .filter((t) => t.length > 0);
 
   const details = normalizedTickets.map((nums, idx) => {
-    const hit = hasSpecial && nums.includes(special);
+    const hitNums = hasSpecial && nums.includes(special) ? [special] : [];
+    const hitCount = hitNums.length;
+    const bets = nums.length;
     return {
       index: idx + 1,
       nums,
-      hitNums: hit ? [special] : [],
-      hitCount: hit ? 1 : 0,
-      isWin: hit,
-      payout: hit ? stake * odds : 0
+      bets, // 这一组折算成几注（特码：号码个数）
+      hitNums,
+      hitCount, // 中了几注（特码：中了的号码个数）
+      isWin: hitCount > 0,
+      cost: bets * stake,
+      payout: hitCount * stake * odds
     };
   });
 
   const winningTickets = details.filter((d) => d.isWin);
-  const totalBets = details.length;
-  const winCount = winningTickets.length;
+  const totalBets = details.reduce((sum, d) => sum + d.bets, 0);
+  const winCount = details.reduce((sum, d) => sum + d.hitCount, 0);
   const cost = totalBets * stake;
   const payout = hasSpecial ? winCount * stake * odds : 0;
   const netProfit = hasSpecial ? payout - cost : 0;
   const roi = hasSpecial && cost > 0 ? Number(((netProfit / cost) * 100).toFixed(2)) : 0;
 
   return {
-    targetSize: 5,
+    targetSize: maxSize,
     playMode: 'special',
     hasDraw: hasSpecial,
     hasSpecial,
@@ -237,7 +248,7 @@ export function evaluateSpecialTickets(tickets, draw, userConfig = {}) {
 /**
  * 按玩法分发的注单核对
  *
- *  - playMode = 'special' → 特码口径（1 个号等于开奖特码即中）
+ *  - playMode = 'special' → 特码口径（1 个号码 = 1 注，号等于开奖特码即中该注）
  *  - 其余（pick3 / pick4）→ 直选口径（号码全部落在 6 个正码里）
  *
  * @param {Array<Array<number|string>>} tickets

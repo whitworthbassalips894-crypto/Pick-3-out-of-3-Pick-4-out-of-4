@@ -68,29 +68,56 @@ test('直选：四中四要求 4 个号全部命中，特码永远不计入', ()
   assert.equal(res.details[1].isWin, false);
 });
 
-test('特码：命中 = 开奖的最后一个号码落在这 5 个号里，正码不参与判定', () => {
+test('特码（1 中 1）：1 个号 = 1 注，中几个号返几份，正码不参与判定', () => {
   const draw = { numbers: [14, 43, 26, 45, 3, 31], special: 23 };
   const tickets = [
-    [23, 1, 2, 3, 4],      // 含特码 → 中
-    [23, 5, 6, 7, 8],      // 含特码 → 中
-    [14, 43, 26, 45, 3],   // 全是正码但没有特码 → 不中
-    [1, 2, 3, 4, 5]        // 没有 → 不中
+    [23, 1, 2],      // 3 个号 = 3 注，含特码 → 中 1 注
+    [14, 43, 26],    // 全是正码但没有特码 → 0 注
+    [5, 6, 7],       // 没有 → 0 注
+    [23, 24, 25]     // 含特码 → 中 1 注
   ];
-  const res = evaluateSpecialTickets(tickets, draw, { stake: 10, oddsSpecial: 48 });
-  assert.equal(res.totalBets, 4);
-  assert.equal(res.winCount, 2);
-  assert.equal(res.cost, 40);
+  const res = evaluateSpecialTickets(tickets, draw, {
+    stake: 10,
+    oddsSpecial: 48,
+    targetSize: 3
+  });
+  assert.equal(res.totalBets, 12, '4 组 × 3 个号 = 12 注');
+  assert.equal(res.winCount, 2, '中了 2 注');
+  assert.equal(res.cost, 120);
   assert.equal(res.payout, 2 * 10 * 48);
-  assert.equal(res.netProfit, 960 - 40);
+  assert.equal(res.netProfit, 960 - 120);
   assert.deepEqual(res.details[0].hitNums, [23]);
   assert.equal(res.details[0].isWin, true);
-  assert.equal(res.details[2].isWin, false);
-  assert.equal(res.details[2].hitCount, 0);
+  assert.equal(res.details[0].hitCount, 1);
+  assert.equal(res.details[0].bets, 3);
+  assert.equal(res.details[1].isWin, false, '正码全中但没特码 → 不中');
+  assert.equal(res.details[1].hitCount, 0);
+});
+
+test('特码回归：单号注单必须能判中（旧版写死 length === 5 导致 1759 期全 0）', () => {
+  const draw = { numbers: [19, 47, 35, 6, 17, 38], special: 8 };
+  // 1 个号的注单（旧模型下会被过滤掉 → 假 0 命中）
+  const single = evaluateTickets([[8]], draw, { playMode: 'special', stake: 10, oddsSpecial: 48 });
+  assert.equal(single.details.length, 1, '单号注单不能被丢弃');
+  assert.equal(single.details[0].isWin, true);
+  assert.equal(single.winCount, 1);
+  assert.equal(single.payout, 480);
+  assert.equal(single.cost, 10);
+
+  // 3 个号里含特码 → 中 1 注；不含 → 0 注
+  const triple = evaluateTickets([[8, 9, 10], [1, 2, 3]], draw, { playMode: 'special', stake: 10, oddsSpecial: 48 });
+  assert.deepEqual(triple.details.map((d) => d.hitCount), [1, 0]);
+  assert.equal(triple.totalBets, 6);
+  assert.equal(triple.cost, 60);
+  assert.equal(triple.payout, 480);
+
+  // 空注单不参与结算
+  assert.equal(evaluateTickets([[]], draw, { playMode: 'special' }).totalBets, 0);
 });
 
 test('evaluateTickets 按 playMode 分发到对应口径', () => {
   const draw = { numbers: [14, 43, 26, 45, 3, 31], special: 23 };
-  const special = evaluateTickets([[23, 1, 2, 3, 4]], draw, { stake: 10, playMode: 'special', oddsSpecial: 48 });
+  const special = evaluateTickets([[23, 1, 2]], draw, { stake: 10, playMode: 'special', oddsSpecial: 48 });
   assert.equal(special.winCount, 1);
   assert.equal(special.payout, 480);
 
@@ -103,6 +130,6 @@ test('evaluateTickets 按 playMode 分发到对应口径', () => {
   assert.equal(pick4.payout, 75000);
 
   // 特码玩法下，正码全中但没有特码 → 不中
-  const notSpecial = evaluateTickets([[14, 43, 26, 45, 3]], draw, { stake: 10, playMode: 'special', oddsSpecial: 48 });
+  const notSpecial = evaluateTickets([[14, 43, 26]], draw, { stake: 10, playMode: 'special', oddsSpecial: 48 });
   assert.equal(notSpecial.winCount, 0);
 });

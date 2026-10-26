@@ -73,14 +73,33 @@ test('回归样例 2026-287：直选命中口径正确（特码不计入，号�
   }
 });
 
-test('回归样例 2026-287：特码口径只认开奖的最后一个号码', () => {
-  const target = pick('2026-287');
+test('回归样例 2026-287：特码口径只认开奖的最后一个号码，且逐号结算', () => {
+  const target = pick('2026-287'); // 特码 08
   const rec = buildDailyFiveRecords(ALL, [target], { mode: 'special', oddsSpecial: 48 })[0];
   for (const e of rec.five) {
-    assert.equal(e.isWin, e.numbers.includes(target.special));
-    assert.equal(e.hitCount, e.isWin ? 1 : 0);
-    assert.equal(e.payout, e.isWin ? 10 * 48 : 0);
+    const hits = e.numbers.filter((n) => n === target.special).length;
+    assert.equal(e.isWin, hits > 0);
+    assert.equal(e.hitCount, hits);
+    assert.equal(e.payout, hits * 10 * 48, '中几个号就返几份');
   }
+});
+
+test('特码回放不是 0 命中：1759 期里每组的命中注数应接近 3/49', () => {
+  // 旧版把注单写死成 5 个号，导致所有 1/3 个号的注单被丢弃 → 1759 期全 0。这里做真实回归。
+  const targets = ALL.slice(0, 300);
+  const records = buildDailyFiveRecords(ALL, targets, { mode: 'special', oddsSpecial: 48 });
+  const summary = summarizeDailyFive(records, { mode: 'special', oddsSpecial: 48, stake: 10 });
+  const expected = targets.length * (3 / 49); // 每组期望命中注数 ≈ 18.4
+  for (const agg of summary.catalog) {
+    assert.ok(agg.hitSum > 0, `${agg.code} ${agg.name} 300 期一次都没中，说明命中判定坏了`);
+    assert.ok(agg.hitSum > expected * 0.3 && agg.hitSum < expected * 2.5,
+      `${agg.code} ${agg.name} 命中 ${agg.hitSum} 注，偏离理论值 ${expected.toFixed(1)} 太多`);
+    assert.ok(agg.winPeriods > 0);
+    assert.ok(agg.payout > 0);
+  }
+  // 整体 ROI 应落在理论值 48/49 - 1 = -2.04% 附近的小样本波动内
+  assert.ok(summary.totalRoi > -60 && summary.totalRoi < 60, `300 期整体 ROI 异常：${summary.totalRoi}%`);
+  assert.equal(summary.totalCost, targets.length * 5 * 3 * 10, '成本 = 期数 × 15 注 × 本金');
 });
 
 test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字）', () => {
@@ -95,17 +114,21 @@ test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字�
     const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, oddsSpecial: 48, mode });
 
     assert.equal(summary.periods, records.length);
-    // 每注 1 注/期 → 5 注 × 1 注 × 本金
-    assert.equal(summary.totalCost, records.length * 5 * 10);
+    // 特码每组 3 注、直选每组 1 注 → 5 组 × 每组注数 × 本金
+    const bets = summary.betsPerOption;
+    assert.equal(summary.totalCost, records.length * 5 * bets * 10);
 
     for (const agg of summary.catalog) {
-      const manualWins = records.reduce((s, r) => {
+      let manualWins = 0;
+      let manualBets = 0;
+      for (const r of records) {
         const e = r.five.find((x) => x.id === agg.id);
-        return s + (e.isWin ? 1 : 0);
-      }, 0);
+        if (e.isWin) manualWins++;
+        manualBets += mode === 'special' ? (e.hitCount || 0) : (e.isWin ? 1 : 0);
+      }
       assert.equal(agg.winPeriods, manualWins);
-      assert.equal(agg.payout, manualWins * 10 * odds);
-      assert.equal(agg.cost, records.length * 10);
+      assert.equal(agg.payout, manualBets * 10 * odds);
+      assert.equal(agg.cost, records.length * bets * 10);
       assert.equal(agg.net, agg.payout - agg.cost);
     }
     assert.equal(summary.totalNet, summary.totalPayout - summary.totalCost);
@@ -114,8 +137,8 @@ test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字�
 
 test('自选直选回放：每期都用同一组号码，且不偷看当期数据', () => {
   const targets = ALL.slice(0, 30);
-  // 特码是 1 中 1：自选就 1 个号
-  for (const [mode, custom] of [['pick3', [6, 26, 29]], ['special', [26]]]) {
+  // 特码是 1 中 1：自选 3 个号 = 3 注
+  for (const [mode, custom] of [['pick3', [6, 26, 29]], ['special', [6, 26, 29]]]) {
     const records = buildCustomRecords(ALL, targets, { customNumbers: custom, stake: 10, mode });
     for (const r of records) {
       assert.deepEqual(r.five[0].numbers, custom);
@@ -126,6 +149,6 @@ test('自选直选回放：每期都用同一组号码，且不偷看当期数�
     const customAgg = summary.catalog.find((c) => c.id === 'custom');
     assert.ok(customAgg);
     assert.equal(customAgg.periods, targets.length);
-    assert.equal(customAgg.cost, targets.length * 10);
+    assert.equal(customAgg.cost, targets.length * (mode === 'special' ? 3 : 1) * 10);
   }
 });

@@ -1,30 +1,30 @@
 /**
- * 「每日 5 注」引擎（特码 / 三中三 / 四中四 共用一套骨架）
+ * 「每日 5 组」引擎（特码 / 三中三 / 四中四 共用一套骨架）
  *
  * 先把概率说清楚（这也是本引擎唯一的数学依据）：
  *   每期开奖相互独立，任何选号方法都**不能**改变单注命中概率：
- *     特码    每注 1 个号（1 中 1），命中 P = 1/49 ≈ 2.0408%
+ *     特码    每组 3 个号（3 注，1 中 1），单注命中 P = 1/49 ≈ 2.0408%
  *     三中三  每注 3 个号全落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
  *     四中四  每注 4 个号全落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.00708%
  *   能改变的只有「覆盖面」：各注号码越少重叠，N 注合计「至少中 1 注」的概率越高。
  *
- * 5 注分工（风格不同，概率相同）：
+ * 5 组分工（风格不同，概率相同）：
  *   #1 🎲 完全随机  **纯 49 选 size 等概率机选**，允许与精选重复（对照组，可重摇）
  *   #2 🔥 热号      近 30 期出现次数最多的号（顺势风格）
  *   #3 🎯 冷号      遗漏最久的号（回补风格）
  *   #4 ⚖️ 形态均衡  和值靠近理论均值，奇偶 / 大小 / 三区均衡
- *                   （特码只有 1 个号时退化为「中位号」，取靠近 25 的号）
+ *                   （特码 3 个号时按上 / 中 / 下三区各 1 个号）
  *   #5 🧩 补位覆盖  补齐 #2~#4 没覆盖到的尾数与区段
  *
- * 重叠策略：随机注不设任何限制（随机就该是随机的）；#2~#5 四注精选之间互不重复，
- * 让「补位覆盖」这一注有意义、也让整体覆盖面不至于浪费。
+ * 重叠策略：随机组不设任何限制（随机就该是随机的）；#2~#5 四组精选之间互不重复，
+ * 让「补位覆盖」这一组有意义、也让整体覆盖面不至于浪费。
  * 「至少中 1 注」的概率按实际号码用容斥公式精确计算（见 anyHitProbability），不靠假设。
  *
- * 严格无未来函数：第 T 期的 5 注只用严格早于 T 期的正码 / 特码数据。
- * 确定性：同一期 + 同一重摇盐值 + 同一玩法 → 永远得到同一组 5 注。
+ * 严格无未来函数：第 T 期的 5 组只用严格早于 T 期的正码 / 特码数据。
+ * 确定性：同一期 + 同一重摇盐值 + 同一玩法 → 永远得到同一组号码。
  */
 
-import { ALL_NUMBERS, PLAY_MODES, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
+import { ALL_NUMBERS, PLAY_MODES, betsPerTicket, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
 import { isUsableDraw } from './audit.js';
 import { binomial, evaluateTickets, normalizeNumbers } from './combinatorics.js';
 import { getPriorDraws, selectDirectNumbers } from './strategy.js';
@@ -75,16 +75,16 @@ export const DAILY_FIVE_CATALOG = [
 /** 玩法定义（与 src/constants.js 的 PLAY_MODES 一致，方便单独引用） */
 export { PLAY_MODES };
 
-/** 直选每注的号码个数：3 = 三中三，4 = 四中四，5 = 特码 */
-export const DIRECT_SIZES = [3, 4, 5];
+/** 直选玩法的号码个数：3 = 三中三，4 = 四中四（特码是 1 中 1，不走直选口径） */
+export const DIRECT_SIZES = [3, 4];
 
 /** 特码玩法的说明（命中对象是特码，统计口径换成「该号作为特码出现」的历史） */
 const SPECIAL_DESCRIPTIONS = {
-  random: '从 01–49 等概率机选（纯随机对照，允许与精选重复，可重摇）',
-  hot: '近 30 期作为特码出现次数最多的号',
-  cold: '作为特码遗漏最久的号',
-  shape: '靠近中值 25 的单号（大小 / 三区居中）',
-  cover: '补齐 #2~#4 未覆盖的尾数与区段'
+  random: '从 01–49 等概率机选 3 个号（纯随机对照，允许与精选重复，可重摇）',
+  hot: '近 30 期作为特码出现最多的 3 个号（3 个号 = 3 注）',
+  cold: '作为特码遗漏最久的 3 个号（3 个号 = 3 注）',
+  shape: '上 / 中 / 下三区各 1 个号，兼顾奇偶与大小',
+  cover: '补齐 #2~#4 未覆盖的尾数与区段，3 个号铺开'
 };
 
 /**
@@ -100,14 +100,16 @@ export function catalogForMode(mode = 'pick3') {
 }
 
 /**
- * 随机理论期望
- * @param {number|string} mode 玩法（special / pick3 / pick4）或号码个数（1 / 3 / 4）
- *  - 特码：每注 1 个号（1 中 1）→ 期望命中率 1/49 ≈ 0.0204
+ * 随机理论期望（每个选项场均中奖注数）
+ * @param {number|string} mode 玩法（special / pick3 / pick4）或号码个数（3 / 4）
+ *  - 特码：每组 3 个号 = 3 注，1 个号命中率 1/49 → 期望 3/49 ≈ 0.0612 注
  *  - 三中三 / 四中四：size 个号 × 6 个正码 / 49（期望命中**号码个数**）
  */
 export function randomExpectedHits(mode = 3) {
   const raw = String(mode ?? '').trim();
-  if (raw === 'special' || raw === '特码' || raw === 1 || raw === '1') return 1 / 49;
+  if (raw === 'special' || raw === '特码' || raw === 1 || raw === '1' || raw === 5 || raw === '5') {
+    return PLAY_MODES.special.size / 49;
+  }
   const size = raw === 'pick4' || raw === 4 || raw === '4' ? 4 : 3;
   return (size * 6) / 49;
 }
@@ -596,13 +598,14 @@ function buildCoverScoreMap(used = new Set(), baseMap = {}) {
 export function anyHitProbability(tickets = [], mode = 'pick3') {
   const spec = getPlayMode(mode);
   const size = spec.size;
+  const isSpecialMode = spec.id === 'special';
   const clean = (Array.isArray(tickets) ? tickets : [])
     .map((t) => normalizeNumbers(t, { sort: true, maxCount: size }))
-    .filter((t) => t.length === size);
+    .filter((t) => (isSpecialMode ? t.length > 0 : t.length === size));
   if (!clean.length) return 0;
 
-  // 特码：并集号码数 / 49
-  if (spec.id === 'special') {
+  // 特码：每个号都是 1 注，各号互斥 → 并集号码数 / 49 是**精确值**
+  if (isSpecialMode) {
     return Math.min(1, new Set(clean.flat()).size / 49);
   }
 
@@ -724,8 +727,11 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
 
   // 覆盖面：按 5 注的**实际号码**算，随机注可能与精选重复，所以并集可能少于 5×size。
   const covered = new Set(entries.flatMap((e) => e.numbers));
+  // perTicket = 每个选项至少中 1 注的概率（特码 = 3 个号 × 1/49；直选 = 组合概率）
   const perTicket = isSpecial ? size / 49 : binomial(6, size) / binomial(49, size);
   const anyHit = anyHitProbability(entries.map((e) => e.numbers), spec.id);
+  const betsPerOption = betsPerTicket(spec.id);
+  const totalBets = betsPerOption * entries.length;
 
   return {
     target: { year, periodNum, period: String(periodNum).padStart(3, '0'), date },
@@ -738,8 +744,11 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     consensus: [], // 取消共识号展示
     coverage: {
       distinct: covered.size,
-      overlap: size * 5 - covered.size, // 随机注与精选撞上的号码个数
-      perTicket,
+      overlap: size * entries.length - covered.size, // 随机注与精选撞上的号码个数
+      perTicket, // 每个选项至少中 1 注
+      perBet: isSpecial ? 1 / 49 : perTicket, // 单注（特码 = 单个号码）
+      betsPerOption, // 每个选项折算成几注（特码 3）
+      totalBets, // 本期总注数（特码 15）
       anyHit,
       allBlank: 1 - anyHit
     },
@@ -847,11 +856,13 @@ export function summarizeDailyFive(records = [], options = {}) {
   const size = spec.size;
   const odds = spec.id === 'special' ? oddsSpecial : spec.id === 'pick4' ? odds4 : odds3;
 
+  const betsPerOption = betsPerTicket(spec.id);
   const catalog = catalogForMode(spec.id).map((m) => ({
     ...m,
     periods: 0,
     hitSum: 0,
     winPeriods: 0,
+    bets: 0,
     cost: 0,
     payout: 0
   }));
@@ -867,6 +878,7 @@ export function summarizeDailyFive(records = [], options = {}) {
       periods: 0,
       hitSum: 0,
       winPeriods: 0,
+      bets: 0,
       cost: 0,
       payout: 0
     };
@@ -881,7 +893,8 @@ export function summarizeDailyFive(records = [], options = {}) {
       agg.periods++;
       agg.hitSum += e.hitCount || 0;
       if (e.isWin) agg.winPeriods++;
-      agg.cost += stake;
+      agg.bets += betsPerOption; // 特码每组 3 注，成本要按注算
+      agg.cost += stake * betsPerOption;
       agg.payout += e.payout || 0;
     }
   }
@@ -891,12 +904,15 @@ export function summarizeDailyFive(records = [], options = {}) {
     agg.net = agg.payout - agg.cost;
     agg.roi = agg.cost > 0 ? Number(((agg.net / agg.cost) * 100).toFixed(2)) : 0;
     agg.winRate = agg.periods ? Number(((agg.winPeriods / agg.periods) * 100).toFixed(3)) : 0;
+    agg.avgBets = agg.periods ? Number((agg.bets / agg.periods).toFixed(2)) : 0;
   }
 
   const totalCost = catalog.reduce((a, c) => a + c.cost, 0);
   const totalPayout = catalog.reduce((a, c) => a + c.payout, 0);
   return {
     size,
+    betsPerOption,
+    totalBets: catalog.reduce((a, c) => a + c.bets, 0),
     mode: spec.id,
     stake,
     odds3,

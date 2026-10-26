@@ -48,7 +48,8 @@ export function comb(n, k) {
  *   coverageNumbers：N 注理论最多覆盖的不同号码数
  */
 export function anyHitBaseline(baseline, tickets = 5) {
-  const p = Number(baseline?.hitProb) || 0;
+  // 特码：单个选项 = 3 注，用「每组至少中 1 注」的概率算独立近似
+  const p = Number(baseline?.hitProbPerTicket ?? baseline?.hitProb) || 0;
   const size = Number(baseline?.size) || 0;
   const population = Number(baseline?.population) || 49;
   const coverageNumbers = Math.min(population, size * tickets);
@@ -74,35 +75,41 @@ export function formatPercent(p, digits = 2) {
 /* ------------------------------------------------------------------ 直选 */
 
 /**
- * 特码基线：**1 中 1**——每注只有 1 个号码，开奖的特码正好是它才算命中
+ * 特码基线：**1 中 1**——1 个号就是 1 注，开奖的特码正好是它才算命中
  *
- *   P(中) = 1 / 49 ≈ 2.0408%
- * 理论公平赔率 = 49 倍；市面常见 48 倍（EV = 48/49 ≈ 97.96%，抽水约 2%）
+ * 本工具每组给 3 个号（= 3 注），5 组就是 15 注：
+ *   单注（1 个号）P = 1/49 ≈ 2.0408%，公平赔率 49 倍
+ *   每组（3 个号）至少中 1 注 = 3/49 ≈ 6.122%
+ *   5 组 15 注（号码互不重复）至少中 1 注 = 15/49 ≈ 30.612%（各号互斥，可直接相加）
+ * 市面常见 48 倍 → EV = 48/49 ≈ 97.96%（抽水约 2%）
  *
- * 注意：这不是「5 个号包一个特码」。一注 1 个号是特码的标准玩法，
- * 5 注就是 5 个不同的单号，合计命中率 = 5/49 ≈ 10.204%（各号互斥，可直接相加）。
+ * 注意：这不是「3 个号包一个特码、赔 48」，而是 3 个号各算 1 注、各赔 48 倍。
  */
 export function specialBaseline() {
   const population = 49;
-  const size = 1;
-  const hitProb = size / population;
+  const size = 3; // 每个选项 3 个号
+  const bets = 3; // 3 个号 = 3 注
+  const hitProb = 1 / population; // 单注 = 单个号码
   return {
     size,
+    bets,
     population,
     draws: 1,
-    marked: size,
+    marked: 1,
     playMode: 'special',
-    /** 单注命中概率 */
+    /** 单注（1 个号）命中概率 */
     hitProb,
+    /** 每个选项（size 个号）至少中 1 注的概率 */
+    hitProbPerTicket: Math.min(1, size * hitProb),
     /** 理论公平赔率（1 : 1 的公平值） */
-    fairOdds: population / size,
-    /** 每注平均覆盖的号码数（与命中概率同值） */
-    expectedHits: hitProb,
+    fairOdds: population,
+    /** 每个选项场均中奖注数的期望 */
+    expectedHits: size * hitProb,
     /**
-     * 每期 5 注里至少中 1 注的概率：特码各号互斥，5 个不同单号可直接相加 → 5/49。
-     * （若 5 注里有重复号，实际值见 anyHitProbability() 的并集口径。）
+     * 每期 5 组（= 15 注）里至少中 1 注的概率：特码各号互斥，号码不重复时可直接相加 → 15/49。
+     * （若随机组与精选用号重复，实际值见 anyHitProbability() 的并集口径。）
      */
-    anyHitProb: Math.min(1, 5 * hitProb)
+    anyHitProb: Math.min(1, 5 * size * hitProb)
   };
 }
 
@@ -116,7 +123,7 @@ export function specialBaseline() {
  *
  * 期望回报率 = 赔率 × 命中概率（页面必须如实呈现，不能美化亏损）。
  *
- * @param {number|string} mode 1 / 3 / 4（每注号码个数）或 'special' / 'pick3' / 'pick4'（玩法）
+ * @param {number|string} mode 3 / 4（每注号码个数）或 'special' / 'pick3' / 'pick4'（玩法）
  */
 export function directBaseline(mode = 3) {
   const raw = String(mode ?? '').trim();

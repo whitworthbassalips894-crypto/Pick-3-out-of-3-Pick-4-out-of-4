@@ -55,28 +55,32 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     const text = (id) => window.document.getElementById(id)?.textContent?.trim() || '';
     assert.ok(text('heroPeriod').includes('第299期'), `头部期号异常：${text('heroPeriod')}`);
     assert.equal(window.document.querySelectorAll('#fiveGrid .five-card').length, 5, '5 注卡片没渲染出来');
-    assert.ok(text('heroMeta').includes('覆盖'), '应显示 5 注覆盖的号码数');
+    assert.ok(text('heroMeta').includes('覆盖'), '应显示 5 组覆盖的号码数');
+    assert.ok(text('heroMeta').includes('15 注'), '应显示本期共 15 注');
 
-    // 特码是 1 中 1：每注 1 个号，5 注共 5 个号；随机注允许与精选重复，所以并集 ≤ 5
+    // 特码是 1 中 1：每组 3 个号 = 3 注，5 组共 15 个号；随机组允许与精选重复，并集 ≤ 15
     const five = [...window.document.querySelectorAll('#fiveGrid .fc-balls .lotto-ball')]
       .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
-    assert.equal(five.length, 5, `应有 5 个号码，实际 ${five.length}`);
-    assert.ok(new Set(five).size <= 5 && new Set(five).size >= 4, `并集号码数异常：${new Set(five).size}`);
+    assert.equal(five.length, 15, `应有 15 个号码，实际 ${five.length}`);
+    assert.ok(new Set(five).size <= 15 && new Set(five).size >= 12, `并集号码数异常：${new Set(five).size}`);
 
-    // 精选四注（#2~#5）之间必须互不重复
+    // 精选四组（#2~#5）之间必须互不重复 → 12 个号
     const picked = [...window.document.querySelectorAll('#fiveGrid .five-card:not(.is-random) .fc-balls .lotto-ball')]
       .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
-    assert.equal(picked.length, 4, `精选应有 4 个号码，实际 ${picked.length}`);
-    assert.equal(new Set(picked).size, 4, '精选四注之间不能重复用号');
+    assert.equal(picked.length, 12, `精选应有 12 个号码，实际 ${picked.length}`);
+    assert.equal(new Set(picked).size, 12, '精选四组之间不能重复用号');
 
     // 随机注说明要讲清「纯 49 选、允许重复」
     const randomCard = window.document.querySelector('#fiveGrid .five-card.is-random');
     assert.ok(randomCard.textContent.includes('49 个号等概率机选'), '随机注说明没更新');
 
-    // 概率口径行：单注命中 2.0408%、公平赔率 49、当前回报率 98.0%、至少中 1 注 = 并集/49
-    assert.ok(text('featuredCostLine').includes('2.0408%'), `单注命中率没显示：${text('featuredCostLine')}`);
-    assert.ok(text('featuredCostLine').includes('49.0 倍'), '公平赔率没显示');
-    assert.ok(text('featuredCostLine').includes('98.0%'), '期望回报率没显示');
+    // 概率口径行：15 注、单注 2.0408%、每组 6.1224%、公平 49 倍、回报率 98.0%、至少中 1 注 = 并集/49
+    const costLine = text('featuredCostLine');
+    assert.ok(costLine.includes('15 注'), `注数没按 15 注显示：${costLine}`);
+    assert.ok(costLine.includes('2.0408%'), `单注命中率没显示：${costLine}`);
+    assert.ok(costLine.includes('6.1224%'), `每组命中率没显示：${costLine}`);
+    assert.ok(costLine.includes('49.0 倍'), '公平赔率没显示');
+    assert.ok(costLine.includes('98.0%'), '期望回报率没显示');
     const distinct = new Set(five).size;
     const expectAnyHit = ((distinct / 49) * 100).toFixed(3);
     assert.ok(text('featuredCostLine').includes(expectAnyHit), `至少中 1 注应为并集/49 = ${expectAnyHit}%：${text('featuredCostLine')}`);

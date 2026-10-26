@@ -9,7 +9,7 @@
  * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
  * 由 tests/build-version.test.mjs 自动校验三处一致性。
  */
-export const APP_BUILD = '2026.10.26-r14';
+export const APP_BUILD = '2026.10.26-r15';
 
 /** 页面上显示的版本标签 */
 export const APP_VERSION_LABEL = `v${APP_BUILD}`;
@@ -134,32 +134,37 @@ export const DEFAULT_CONFIG = {
   // 市面常见 48 倍 → 期望回报率 48/49 ≈ 97.96%（庄家抽约 2%），本工具默认按这个口径。
   oddsSpecial: 48,
   hitRule: 'normal_6_only', // 严格按传统连码规则：仅核对前 6 个正码（平一～平六）
-  playMode: 'special', // 当前玩法：special = 特码（每注 1 个号），pick3 = 三中三，pick4 = 四中四
+  playMode: 'special', // 当前玩法：special = 特码（每组 3 个号 = 3 注），pick3 = 三中三，pick4 = 四中四
   remoteSourceUrl: 'https://2026kj.zkclhb.com:2025/am.html'
 };
 
 /**
  * 玩法定义（顺序 = 页面切换按钮顺序：特码 → 三中三 → 四中四）
  *
- *  - special 特码：每注 1 个号码；命中 = 开奖的最后一个号码（特码）正好等于这 1 个号，P = 1/49 ≈ 2.0408%
- *  - pick3   三中三：每注 3 个号码；命中 = 3 个号全部落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
- *  - pick4   四中四：每注 4 个号码；命中 = 4 个号全部落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.0071%
+ *  size = 每个选项给几个号；bets = 这个选项折算成几注（1 注 = 1 份本金）。
+ *
+ *  - special 特码：每组 3 个号，**1 个号 = 1 注**，所以 3 个号 = 3 注；
+ *    命中 = 开奖的最后一个号码（特码）等于其中某个号，那个号就中，单注 P = 1/49 ≈ 2.0408%
+ *  - pick3   三中三：每组 3 个号 = 1 注；命中 = 3 个号全部落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
+ *  - pick4   四中四：每组 4 个号 = 1 注；命中 = 4 个号全部落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.0071%
  */
 export const PLAY_MODES = {
   special: {
     id: 'special',
     name: '特码',
     title: '特码',
-    size: 1,
+    size: 3, // 每个选项给 3 个号
+    bets: 3, // 特码 1 个号 = 1 注 → 3 个号 = 3 注
     target: 'special',
     oddsKey: 'oddsSpecial',
-    hitRule: '开奖的最后一个号码（特码）正好等于这 1 个号码才算命中'
+    hitRule: '每个选项 3 个号、各算 1 注：开奖的特码等于其中哪 1 个号，那 1 注就中'
   },
   pick3: {
     id: 'pick3',
     name: '选三',
     title: '三中三',
     size: 3,
+    bets: 1,
     target: 'normals',
     oddsKey: 'odds3',
     hitRule: '这 3 个号码全部落在 6 个正码里才算命中'
@@ -169,6 +174,7 @@ export const PLAY_MODES = {
     name: '选四',
     title: '四中四',
     size: 4,
+    bets: 1,
     target: 'normals',
     oddsKey: 'odds4',
     hitRule: '这 4 个号码全部落在 6 个正码里才算命中'
@@ -189,4 +195,19 @@ export const DEFAULT_PLAY_MODE = 'special';
 export function getPlayMode(mode) {
   const key = String(mode || '').trim();
   return PLAY_MODES[key] || PLAY_MODES[DEFAULT_PLAY_MODE];
+}
+
+/**
+ * 每个选项折算成几注（1 注 = 1 份本金）
+ *
+ *  - 特码：每个选项 3 个号，1 个号 = 1 注 → 3 注
+ *  - 三中三 / 四中四：一个选项就是 1 注
+ *
+ * @param {string} [mode]
+ * @returns {number}
+ */
+export function betsPerTicket(mode) {
+  const spec = getPlayMode(mode);
+  const bets = Math.trunc(Number(spec.bets ?? 1));
+  return bets >= 1 ? bets : 1;
 }

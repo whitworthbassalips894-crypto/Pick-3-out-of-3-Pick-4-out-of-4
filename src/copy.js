@@ -2,7 +2,7 @@
  * 复制内容格式化（纯函数，便于单元测试）
  *
  * 规则（用户明确要求）：
- *  - 复制出来**只有号码**，每注一行；
+ *  - 复制出来**只有号码**，每组一行；
  *  - 同一注的号码之间用顿号「、」分隔，例如 `05、06、07`；
  *  - 注与注之间用换行分隔，例如：
  *      05、06、07
@@ -21,7 +21,7 @@ export function formatNumberLine(nums) {
 }
 
 /**
- * 多注 → 每注一行
+ * 多组 → 每组一行
  * @param {number[][]} tickets
  * @returns {string}
  */
@@ -29,7 +29,7 @@ export function formatTickets(tickets) {
   return (tickets || []).map((t) => formatNumberLine(t)).join('\n');
 }
 
-/** 每日 5 注（直选：每注 3 个号或 4 个号，每注一行） */
+/** 每日 5 组（特码 3 个号 / 直选 3 个号或 4 个号，每组一行） */
 export function formatFiveTickets(five) {
   return formatTickets((five || []).map((e) => e.numbers));
 }

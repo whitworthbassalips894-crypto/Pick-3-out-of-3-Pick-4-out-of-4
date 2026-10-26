@@ -67,14 +67,17 @@ test('formatPercent 输出百分比字符串', () => {
   assert.equal(formatPercent(NaN), '—');
 });
 
-test('特码基线（1 中 1）：每注 1 个号，P = 1/49 ≈ 2.0408%，公平赔率 49 倍', () => {
+test('特码基线（1 中 1）：每组 3 个号 = 3 注，单注 P = 1/49 ≈ 2.0408%，公平赔率 49 倍', () => {
   const b = specialBaseline();
-  assert.equal(b.size, 1, '特码每注就是 1 个号');
-  assert.ok(Math.abs(b.hitProb - 1 / 49) < 1e-12);
+  assert.equal(b.size, 3, '特码每组 3 个号');
+  assert.equal(b.bets, 3, '3 个号 = 3 注');
+  assert.ok(Math.abs(b.hitProb - 1 / 49) < 1e-12, '单注 = 单个号码');
   assert.ok(Math.abs(b.hitProb - 0.02040816326530612) < 1e-12);
-  assert.equal(b.fairOdds, 49, '公平赔率 = 49/1 = 49 倍');
-  // 5 注 5 个不同单号：各号互斥，可相加 → 5/49
-  assert.ok(Math.abs(b.anyHitProb - 5 / 49) < 1e-12);
+  assert.equal(b.fairOdds, 49, '公平赔率 = 49 倍');
+  // 每组 3 个号：各号互斥，可相加 → 3/49
+  assert.ok(Math.abs(b.hitProbPerTicket - 3 / 49) < 1e-12);
+  // 5 组 15 注（号码不重复）→ 15/49
+  assert.ok(Math.abs(b.anyHitProb - 15 / 49) < 1e-12);
 });
 
 test('特码期望回报率：默认 48 倍 ⇒ ≈97.96%，49 倍 ⇒ 100%（公平）', () => {
@@ -89,36 +92,38 @@ test('特码期望回报率：默认 48 倍 ⇒ ≈97.96%，49 倍 ⇒ 100%（�
 
   assert.ok(expectedReturnRate('special', 60) > 1, '高于 49 倍时页面要提示超过公平值');
 
-  // 传号码个数 / 玩法名都能取到对应口径
+  // 传玩法名 / 旧写法都能取到特码口径（EV 仍按「1 注 = 1 个号」算）
   assert.ok(Math.abs(expectedReturnRate(1, 49) - 1) < 1e-9);
+  assert.ok(Math.abs(expectedReturnRate(5, 49) - 1) < 1e-9);
   assert.ok(Math.abs(expectedReturnRate(3, 650) - 650 * (20 / 18424)) < 1e-12);
 });
 
-test('directBaseline 特码口径（size=1）返回 2.0408% 与 49 倍公平赔率', () => {
+test('directBaseline 特码口径（每组 3 号）返回单注 2.0408% / 每组 6.1224% 与 49 倍公平赔率', () => {
   const b = directBaseline('special');
-  assert.equal(b.size, 1);
+  assert.equal(b.size, 3);
   assert.ok(Math.abs(b.hitProb - 1 / 49) < 1e-12);
+  assert.ok(Math.abs(b.hitProbPerTicket - 3 / 49) < 1e-12);
   assert.equal(b.fairOdds, 49);
   assert.equal(directBaseline(1).fairOdds, 49);
 });
 
 /* ------------------------------------------- 「N 注至少中 1 注」的两种口径 */
 
-test('anyHitBaseline：特码 5 注覆盖 5 个号 → 5/49（各号互斥可相加）', () => {
+test('anyHitBaseline：特码 5 组覆盖 15 个号 → 15/49（各号互斥可相加）', () => {
   const base = specialBaseline();
   const a = anyHitBaseline(base, 5);
-  // 特码：5 注 × 1 个号 = 5 个号，完全不重叠
-  assert.equal(a.coverageNumbers, 5);
-  assert.ok(Math.abs(a.coverage - 5 / 49) < 1e-12);
-  assert.ok(Math.abs(a.independent - (1 - (1 - 1 / 49) ** 5)) < 1e-12);
-  // 互斥事件：精确值就是 5/49；独立近似 9.75% 略小
-  assert.ok(a.independent > 0.097 && a.independent < 0.098);
-  assert.ok(a.coverage > 0.102 && a.coverage < 0.103);
+  // 特码：5 组 × 3 个号 = 15 个号，完全不重叠
+  assert.equal(a.coverageNumbers, 15);
+  assert.ok(Math.abs(a.coverage - 15 / 49) < 1e-12);
+  // 独立近似按「每组至少中 1 注 = 3/49」
+  assert.ok(Math.abs(a.independent - (1 - (1 - 3 / 49) ** 5)) < 1e-12);
+  assert.ok(a.independent > 0.27 && a.independent < 0.28);
+  assert.ok(a.coverage > 0.306 && a.coverage < 0.307);
 });
 
 test('anyHitBaseline：注数/号码数会被 population 截断', () => {
   const base = specialBaseline();
-  const many = anyHitBaseline(base, 60); // 60 注 × 1 个号 = 60 个号 > 49
+  const many = anyHitBaseline(base, 40); // 40 组 × 3 个号 = 120 个号 > 49
   assert.equal(many.coverageNumbers, 49);
   assert.equal(many.coverage, 1);
 });
