@@ -128,17 +128,18 @@ test('Service Worker 的外壳清单包含新引擎 dailyfive.js', () => {
   assert.ok(sw.includes("'./src/app.js'"));
 });
 
-test('页面结构：每日 5 注（1 随机 + 4 精选）+ 共识号，且已移除策略切换器', () => {
+test('页面结构：每日 5 注（1 随机 + 4 风格精选），精简后只保留推荐 / 回放 / 数据 / 设置', () => {
   const html = read('index.html');
   assert.ok(html.includes('id="fiveGrid"'), '必须有 5 注卡片容器');
-  assert.ok(html.includes('id="consensusBox"'), '必须有共识号容器');
   assert.ok(html.includes('id="btnRerollRandom"'), '必须有「重摇随机注」');
   assert.ok(html.includes('id="btnResetRandom"'), '必须有「恢复默认随机」');
-  assert.ok(html.includes('每日 5 注'), '标题要写明每日 5 注');
+  assert.ok(html.includes('id="featuredCostLine"'), '必须有概率 / 赔率口径行');
 
-  // 旧版的策略切换器必须彻底移除
-  for (const gone of ['id="strategiesBox"', 'id="foldStrategies"', 'id="btnUseMain"', 'id="heroStrategy"', 'id="pick3List"', 'id="pick4List"']) {
-    assert.ok(!html.includes(gone), `旧结构 ${gone} 必须移除`);
+  // 精简掉的模块不能再出现（含方案下拉：自选号码已下线）
+  for (const gone of ['id="consensusBox"', 'id="explainerLine"', 'id="picker"', 'id="check"',
+    'id="grid49"', 'id="entryLine"', 'id="histYearTabs"', 'id="histHitTabs"', 'id="histSearch"',
+    'id="histStrategy"', 'id="strategiesBox"', 'id="pick3List"', 'id="pick4List"']) {
+    assert.ok(!html.includes(gone), `旧模块 ${gone} 必须移除`);
   }
   // 回放表头
   assert.ok(html.includes('5 注逐注命中'));
@@ -147,15 +148,6 @@ test('页面结构：每日 5 注（1 随机 + 4 精选）+ 共识号，且已�
   assert.ok(html.includes('三中三'));
   assert.ok(html.includes('四中四'));
   assert.ok(html.includes('详情'));
-});
-
-test('回放方案下拉只有「每日 5 注」与「当前自选号码」两种', () => {
-  const html = read('index.html');
-  const block = /<select id="histStrategy"[\s\S]*?<\/select>/.exec(html);
-  assert.ok(block, '必须有 histStrategy 下拉');
-  const values = [...block[0].matchAll(/value="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(values, ['daily5', 'custom']);
-  assert.ok(block[0].includes('当前自选号码'), '方案名称应改成「当前自选号码」');
 });
 
 test('Service Worker 的外壳清单覆盖 app.js 的全部本地依赖（离线可用）', () => {
@@ -175,9 +167,9 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   assert.ok(html.includes('data-mode="special"'), '必须能切到特码');
   assert.ok(html.includes('data-mode="pick3"'), '必须能切到选三');
   assert.ok(html.includes('data-mode="pick4"'), '必须能切到选四');
-  assert.ok(html.includes('特码（每注 5 个号）'), '要有特码玩法标签');
-  assert.ok(html.includes('选三 · 三中三'), '要有选三玩法标签');
-  assert.ok(html.includes('选四 · 四中四'), '要有选四玩法标签');
+  assert.ok(html.includes('特码 · 每注 5 号'), '要有特码玩法标签');
+  assert.ok(html.includes('三中三 · 每注 3 号'), '要有三中三玩法标签');
+  assert.ok(html.includes('四中四 · 每注 4 号'), '要有四中四玩法标签');
   // 顺序：特码 → 选三 → 选四
   assert.ok(
     html.indexOf('data-mode="special"') < html.indexOf('data-mode="pick3"')

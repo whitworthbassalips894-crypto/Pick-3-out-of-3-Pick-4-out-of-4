@@ -1,67 +1,71 @@
 /**
- * 「每日 5 注」直选引擎：1 注纯随机基线 + 4 注精选
+ * 「每日 5 注」引擎（特码 / 三中三 / 四中四 共用一套骨架）
  *
- * 模式参考 https://whitworthbassalips894-crypto.github.io/lottery-tool/ ：
- *   #1 🎲 随机基线   —— 按目标期号定种机选，纯随机对照，可重摇
- *   #2 🔥 热势恒强   —— EMA 短中周期活跃热码 + 上期重号 + 斜连邻号动量
- *   #3 🎯 遗漏回补   —— 个人历史遗漏 80%–98% 临界区 + 热码短休回补窗
- *   #4 🔗 关联共振   —— 近 180 期条件转移升幅 + 同尾/两连号高频共现协同
- *   #5 ⚖️ 均衡配额   —— 贝叶斯频率 + 三区/波色/奇偶配额 + 等隔韵律 + 跨注去重
+ * 先把概率说清楚（这也是本引擎唯一的数学依据）：
+ *   每期开奖相互独立，任何选号方法都**不能**改变单注命中概率：
+ *     特码    每注 5 个号，命中 P = 5/49 ≈ 10.20%
+ *     三中三  每注 3 个号全落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
+ *     四中四  每注 4 个号全落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.00708%
+ *   能改变的只有「覆盖面」：5 注号码互不重叠时，5 注合计「至少中 1 注」的概率最大
+ *     （特码 25/49 ≈ 51.0%；三中三 ≈ 5 × 0.1086% ≈ 0.543%；四中四 ≈ 5 × 0.00708% ≈ 0.0354%）
+ *   所以本引擎的唯一硬约束是：5 注共 5×size 个号码**互不重复**。
  *
- * 玩法口径（直选）：
- *   size = 3 → 三中三：每注 3 个号码，3 个号全部落在 6 个正码里才算中；
- *   size = 4 → 四中四：每注 4 个号码，4 个号全部落在 6 个正码里才算中。
+ * 5 注分工（风格不同，概率相同）：
+ *   #1 🎲 完全随机  从 4 注精选没用到的那批号里等概率机选（对照组，可重摇）
+ *   #2 🔥 热号      近 30 期出现次数最多的号（顺势风格）
+ *   #3 🎯 冷号      遗漏最久的号（回补风格）
+ *   #4 ⚖️ 形态均衡  和值靠近理论均值，奇偶 / 大小 / 三区均衡
+ *   #5 🧩 补位覆盖  补齐前 4 注没覆盖到的尾数与区段
  *
- * 严格无未来函数：第 T 期的 5 注只用严格早于 T 期的正码数据。
- * 确定性：同一期（同一重摇盐值、同一 size）永远得到同一组 5 注。
+ * 严格无未来函数：第 T 期的 5 注只用严格早于 T 期的正码 / 特码数据。
+ * 确定性：同一期 + 同一重摇盐值 + 同一玩法 → 永远得到同一组 5 注。
  */
 
 import { ALL_NUMBERS, PLAY_MODES, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
 import { isUsableDraw } from './audit.js';
-import { evaluateTickets, normalizeNumbers } from './combinatorics.js';
+import { binomial, evaluateTickets, normalizeNumbers } from './combinatorics.js';
 import { getPriorDraws, selectDirectNumbers } from './strategy.js';
 
-/** 5 注目录：第 1 注为纯随机基线，后 4 注为精选 */
 export const DAILY_FIVE_CATALOG = [
   {
     id: 'random',
     code: '#1',
-    name: '随机基线',
+    name: '完全随机',
     icon: '🎲',
     random: true,
-    description: '按目标期号定种机选的纯随机对照，可重摇，也可恢复默认随机'
+    description: '从 4 注精选未用的号里等概率机选（对照基线，可重摇）'
   },
   {
-    id: 'hot_momentum',
+    id: 'hot',
     code: '#2',
-    name: '热势恒强',
+    name: '热号',
     icon: '🔥',
     random: false,
-    description: 'EMA 短中周期活跃热码 + 上期温热重号 + 斜连邻号动量'
+    description: '近 30 期出现次数最多的号 + 上期重号 / 斜邻'
   },
   {
-    id: 'omission_rebound',
+    id: 'cold',
     code: '#3',
-    name: '遗漏回补',
+    name: '冷号',
     icon: '🎯',
     random: false,
-    description: '个人历史遗漏 80%–98% 饱和度临界区 + 高活性热码短休回补窗'
+    description: '按该号自身的历史间隔分位，取遗漏最久的号'
   },
   {
-    id: 'transition_cooccur',
+    id: 'shape',
     code: '#4',
-    name: '关联共振',
-    icon: '🔗',
-    random: false,
-    description: '近 180 期条件转移升幅 + 同尾与两连号高频共现协同选码'
-  },
-  {
-    id: 'balanced_quota',
-    code: '#5',
-    name: '三区波色均衡',
+    name: '形态均衡',
     icon: '⚖️',
     random: false,
-    description: '贝叶斯平滑频率 + 三区/波色/奇偶均衡配额 + 等隔韵律，适度跨注去重'
+    description: '和值靠近理论均值，奇偶 / 大小 / 三区均衡'
+  },
+  {
+    id: 'cover',
+    code: '#5',
+    name: '补位覆盖',
+    icon: '🧩',
+    random: false,
+    description: '补齐前 4 注未覆盖的尾数与区段，让 5 注铺满 01–49'
   }
 ];
 
@@ -71,37 +75,25 @@ export { PLAY_MODES };
 /** 直选每注的号码个数：3 = 三中三，4 = 四中四，5 = 特码 */
 export const DIRECT_SIZES = [3, 4, 5];
 
-/** 特码玩法下 4 注精选的名称与说明（命中对象是特码，策略口径与正码玩法不同） */
-const SPECIAL_CATALOG_OVERRIDE = {
-  hot_momentum: {
-    name: '特码热势',
-    description: '近 30/60 期作为特码出现的频率 + 上期特码邻号动量 + 尾数带动'
-  },
-  omission_rebound: {
-    name: '特码遗漏回补',
-    description: '该号作为特码的历史遗漏分位落在 80%–98% 饱和度临界区'
-  },
-  transition_cooccur: {
-    name: '特码尾数共振',
-    description: '近 60 期特码尾数族群频率 + 上期特码尾数带动 + 长期频率'
-  },
-  balanced_quota: {
-    name: '特码三区均衡',
-    description: '特码出现频率 + 三区/波色/奇偶均衡配额 + 等隔韵律，适度跨注去重'
-  }
+/** 特码玩法的说明（命中对象是特码，统计口径换成「该号作为特码出现」的历史） */
+const SPECIAL_DESCRIPTIONS = {
+  random: '从 4 注精选未用的号里等概率机选（对照基线，可重摇）',
+  hot: '近 30 期作为特码出现次数最多的号 + 上期特码邻号',
+  cold: '作为特码遗漏最久的号',
+  shape: '和值靠近 5 码理论均值，奇偶 / 大小 / 三区均衡',
+  cover: '补齐前 4 注未覆盖的尾数与区段'
 };
 
 /**
- * 按玩法取「每日 5 注」目录（特码玩法用特码自己的名称与说明）
+ * 按玩法取「每日 5 注」目录（特码玩法换一套说明文字，名称保持一致）
  * @param {string} mode 'special' / 'pick3' / 'pick4'
  * @returns {{id:string, code:string, name:string, icon:string, description:string, random:boolean}[]}
  */
 export function catalogForMode(mode = 'pick3') {
   const isSpecial = getPlayMode(mode).id === 'special';
-  return DAILY_FIVE_CATALOG.map((m) => {
-    const override = isSpecial ? SPECIAL_CATALOG_OVERRIDE[m.id] : null;
-    return override ? { ...m, name: override.name, description: override.description } : { ...m };
-  });
+  return DAILY_FIVE_CATALOG.map((m) => (
+    isSpecial ? { ...m, description: SPECIAL_DESCRIPTIONS[m.id] || m.description } : { ...m }
+  ));
 }
 
 /**
@@ -479,28 +471,14 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
 /* ------------------------------------------------------------ 评分与选号 */
 
 /**
- * 遗漏回补曲线：把「遗漏分位」映射成回补强度（0 ~ 3）
+ * 4 注精选（热号 / 冷号 / 形态均衡 / 补位覆盖）在「正码」口径下的打分表
  *
- * 设计原则（修复遗漏 bug 后重新校准）：
- *   1. 0.80~0.98 是所谓「饱和度临界区」，给 1.0 → 3.0 的递增；
- *   2. 超过 0.98 的极端长空**不再继续加分**（打回 1.2）。独立开奖下
- *      「空得越久越该回补」并不成立（下一期命中概率恒为 5/49），
- *      这里的分数只是选号风格，不能把冷号包装成「更该出」；
- *   3. 0.8 以下线性递减，避免回补注变成「专挑刚开过的号」。
- * @param {number} pct 遗漏分位 0~1
- * @returns {number}
+ * 提醒：分数只决定「风格」，不改变命中概率。它真正的作用是——在「5 注互不重叠」的
+ * 硬约束下，让每注看起来符合自己的选号逻辑（热号确实取最近的活跃号，冷号确实取久未出的号）。
  */
-export function reboundStrength(pct = 0) {
-  const p = Number.isFinite(pct) ? Math.min(1, Math.max(0, pct)) : 0;
-  if (p >= 0.98) return 1.2;
-  if (p >= 0.8) return 1.0 + (2.0 * (p - 0.8)) / 0.18;
-  return 0.9 * (p / 0.8);
-}
-
-/** 生成 4 注精选的打分表 */
 function buildScoreMaps(features, year, periodNum) {
   const { stats } = features;
-  const maps = { hot_momentum: {}, omission_rebound: {}, transition_cooccur: {}, balanced_quota: {} };
+  const maps = { hot: {}, cold: {}, shape: {}, cover: {} };
   for (let n = 1; n <= 49; n++) {
     const st = stats[n];
     const j2 = deterministicJitter(year, periodNum, n, 11);
@@ -508,36 +486,28 @@ function buildScoreMaps(features, year, periodNum) {
     const j4 = deterministicJitter(year, periodNum, n, 37);
     const j5 = deterministicJitter(year, periodNum, n, 53);
 
-    // #2 热势恒强：EMA 短中周期 + 重号 + 斜连邻号
-    maps.hot_momentum[n] =
-      2.2 * st.ema15 +
-      1.5 * st.ema30 +
-      (st.isRepeat ? 1.5 : 0) +
-      (st.isNeighbor ? 1.2 : 0) +
-      0.8 * st.tailNorm +
-      j2 * 1.3;
+    // #2 热号：近 30 期出现次数为主 + EMA15 活跃度 + 上期重号 / 斜邻
+    maps.hot[n] =
+      1.0 * st.freq30 +
+      6.0 * st.ema15 +
+      (st.isRepeat ? 1.2 : 0) +
+      (st.isNeighbor ? 0.7 : 0) +
+      j2 * 0.9;
 
-    // #3 遗漏回补：80%–98% 饱和度临界区为主信号 + 短休回补窗 + 长期频率微调
-    // 抖动权重必须小于信号权重（0.5 vs 1.5），否则这一注会退化成「随机票」
-    maps.omission_rebound[n] =
-      1.5 * reboundStrength(st.omissionPct) +
-      (st.isShortRest ? 1.0 : 0) +
-      0.35 * (st.freq180 / 180) * 6 +
-      j3 * 0.5;
+    // #3 冷号：该号自身间距分布里的遗漏分位（越久没出越高）+ 当前遗漏期数
+    maps.cold[n] =
+      3.0 * st.omissionPct +
+      0.06 * Math.min(st.omission, 40) +
+      j3 * 0.4;
 
-    // #4 关联共振：条件转移升幅 + 尾数族群
-    maps.transition_cooccur[n] =
-      2.6 * (Math.min(st.lift, 2) / 2) +
-      1.3 * st.tailNorm +
-      0.9 * (st.freq60 / 6) +
-      j4 * 1.5;
+    // #4 形态均衡：号码靠近中值 25（和值自然落在理论均值附近），频率只做中性微调
+    maps.shape[n] =
+      -0.10 * Math.abs(n - 25) +
+      0.5 * (1 - Math.min(1, Math.abs(st.bayesP - BASE_P) / BASE_P)) +
+      j4 * 0.7;
 
-    // #5 均衡配额：贝叶斯频率 + 尾数 + 近 30 期热度
-    maps.balanced_quota[n] =
-      2.0 * (st.bayesP / BASE_P) * 0.35 +
-      1.0 * st.tailNorm +
-      0.8 * (st.freq30 / 6) +
-      j5 * 1.2;
+    // #5 补位覆盖：真正的分数要按「已覆盖的尾数 / 区段」动态计算，这里只给底分
+    maps.cover[n] = j5 * 0.5;
   }
   return maps;
 }
@@ -545,55 +515,62 @@ function buildScoreMaps(features, year, periodNum) {
 /**
  * 特码模式专用打分表（4 注精选）
  *
- * 命中对象是开奖的最后一个号码（特码），所以打分只用「该号作为特码出现过」的统计：
+ * 命中对象是开奖的最后一个号码（特码），所以只用「该号作为特码出现过」的统计：
  *   rel = 出现次数 × 49 / 窗口期数（1.0 = 平均水平）
  */
 function buildSpecialScoreMaps(features, year, periodNum) {
   const { specialStats } = features;
-  const maps = { hot_momentum: {}, omission_rebound: {}, transition_cooccur: {}, balanced_quota: {} };
+  const maps = { hot: {}, cold: {}, shape: {}, cover: {} };
   for (let n = 1; n <= 49; n++) {
     const st = specialStats[n];
     const j2 = deterministicJitter(year, periodNum, n, 11);
     const j3 = deterministicJitter(year, periodNum, n, 23);
     const j4 = deterministicJitter(year, periodNum, n, 37);
     const j5 = deterministicJitter(year, periodNum, n, 53);
-    const rel15 = (st.freq15 * 49) / 15;
     const rel30 = (st.freq30 * 49) / 30;
     const rel60 = (st.freq60 * 49) / 60;
-    const rel180 = (st.freq180 * 49) / 180;
 
-    // #2 特码热势：近 30/60 期作为特码出现的频率 + 上期特码邻号 + 尾数带动
-    maps.hot_momentum[n] =
-      2.4 * rel30 +
+    // #2 特码热号：近 30 / 60 期作为特码出现的频率 + 上期特码邻号
+    maps.hot[n] =
+      2.6 * rel30 +
       1.6 * rel60 +
-      (st.isNeighbor ? 1.4 : 0) +
-      (st.isTailMatch ? 0.8 : 0) +
-      0.6 * st.tailNorm +
-      j2 * 1.3;
+      (st.isNeighbor ? 0.7 : 0) +
+      j2 * 0.9;
 
-    // #3 特码遗漏回补：该号「作为特码」的遗漏分位落在 80%–98% 临界区为主信号
-    maps.omission_rebound[n] =
-      1.5 * reboundStrength(st.omissionPct) +
-      (st.isShortRest ? 1.0 : 0) +
-      0.3 * rel180 +
-      j3 * 0.5;
+    // #3 特码冷号：作为特码的遗漏分位 + 遗漏期数
+    maps.cold[n] =
+      3.0 * st.omissionPct +
+      0.03 * Math.min(st.omission, 60) +
+      j3 * 0.4;
 
-    // #4 特码尾数共振：近 60 期特码尾数族群 + 上期特码尾数 + 长期频率
-    maps.transition_cooccur[n] =
-      2.2 * st.tailNorm +
-      1.4 * rel180 +
-      0.9 * (st.isTailMatch ? 1 : 0) +
-      j4 * 1.5;
+    // #4 形态均衡：靠近中值 25
+    maps.shape[n] = -0.10 * Math.abs(n - 25) + j4 * 0.7;
 
-    // #5 特码三区均衡：出现频率 + 尾数 + 近 30 期热度（配额由选号器兜底）
-    maps.balanced_quota[n] =
-      2.0 * rel60 * 0.35 +
-      1.0 * st.tailNorm +
-      0.8 * rel30 +
-      0.4 * rel15 +
-      j5 * 1.2;
+    // #5 补位覆盖：动态计算，这里只给底分
+    maps.cover[n] = j5 * 0.5;
   }
   return maps;
+}
+
+/**
+ * #5 补位覆盖的动态打分：优先补前 4 注里出现得最少的尾数，并尽量离已用号码远一些，
+ * 让 5 注在 01–49 上铺得开（只为外观均匀，不改变命中概率）。
+ * @param {Set<number>} used 前 4 注已用掉的号码
+ * @param {Record<number, number>} baseMap 底分
+ */
+function buildCoverScoreMap(used = new Set(), baseMap = {}) {
+  const tailCount = new Array(10).fill(0);
+  for (const n of used) tailCount[n % 10]++;
+  const out = {};
+  for (let n = 1; n <= 49; n++) {
+    let minDist = 49;
+    for (const u of used) minDist = Math.min(minDist, Math.abs(u - n));
+    out[n] =
+      0.9 * (3 - (tailCount[n % 10] || 0)) +
+      0.5 * Math.min(minDist, 6) +
+      0.3 * (baseMap[n] || 0);
+  }
+  return out;
 }
 
 /* --------------------------------------------------------------- 主入口 */
@@ -602,7 +579,7 @@ function buildSpecialScoreMaps(features, year, periodNum) {
  * 生成某期的「每日 5 注」
  * @param {object[]} allDraws 完整底库（降序）
  * @param {{ year?: number, periodNum?: number, date?: string }} [targetMeta]
- * @param {{ randomSalt?: number, mode?: string, size?: number, pinnedNumbers?: number[] }} [options]
+ * @param {{ randomSalt?: number, mode?: string, pinnedNumbers?: number[] }} [options]
  *        mode: 'special' = 特码（每注 5 个号，命中 = 特码落在这 5 个号里）
  *              'pick3'   = 三中三（每注 3 个号，全部落在 6 正码里）
  *              'pick4'   = 四中四（每注 4 个号，全部落在 6 正码里）
@@ -625,81 +602,49 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
   // 特码玩法的命中对象是特码，正码之间的共现加分不适用
   const selectFeatures = isSpecial ? { ...features, pairCount: null } : features;
   const pinned = normalizeNumbers(options.pinnedNumbers || [], { sort: true, maxCount: size });
+  const catalog = catalogForMode(spec.id);
 
   // ————————————————————————————————————————————————————————————
-  // 杀上期特码：特码玩法的命中对象就是「开奖的最后一个号码」，
-  // 而这个号在下一期继续当特码的概率只有约 1/49（≈2.04%），属于典型的低价值号。
-  // 所以 5 注全部把它排除在候选池之外：
-  //   #1 随机注 —— 在剩下 48 个号里随机（仍然是纯随机，只是不含上期特码）；
-  //   #2~#5 精选 —— 直接把该号从候选里剔除，其余历史特征照旧打分。
-  // 正码玩法（三中三 / 四中四）的命中对象是 6 个正码，上期特码不参与判定，因此不杀号。
+  // 5 注互不重叠：used = 已用掉的号码，后面每一注都把它作为硬性排除项。
+  // 这是整套方案里唯一真正影响概率的部分：5 注合起来覆盖 5×size 个不同号码，
+  // 「至少中 1 注」的概率才达到上限。
   // ————————————————————————————————————————————————————————————
-  const killLastSpecial = isSpecial && options.excludeLastSpecial !== false;
-  const lastSpecial = isSpecial ? (features.lastSpecial ?? null) : null;
-  const killedNumbers = killLastSpecial && lastSpecial != null ? [lastSpecial] : [];
-  const killedLabel = killedNumbers.length ? `已杀上期特码 ${String(killedNumbers[0]).padStart(2, '0')}` : '';
+  const used = new Set();
+  const picks = new Map();
 
-  const entries = [];
-
-  // #1 随机基线：按期号定种机选 size 个号（纯随机对照，不含上期特码）
-  const rng = mulberry32(seedFor(year, periodNum, randomSalt));
-  const randomNums = shuffledNumbers(rng, size, killedNumbers);
-  entries.push({
-    id: 'random',
-    code: '#1',
-    name: '随机基线',
-    icon: '🎲',
-    random: true,
-    numbers: randomNums,
-    killed: killedNumbers.slice(),
-    rationale: [
-      randomSalt > 0 ? `已重摇第 ${randomSalt} 次（按期号定种）` : '按目标期号定种机选的纯随机对照',
-      killedNumbers.length ? `池子为除上期特码外的 48 个号（${killedLabel}）` : ''
-    ].filter(Boolean).join(' · '),
-    seed: seedFor(year, periodNum, randomSalt)
-  });
-
-  // #2~#5 精选：四注各自风格不变（热势 / 遗漏回补 / 尾数共振 / 三区均衡），
-  // 统一不带入上期特码，并逐注累计「跨注已用次数」：同一个号被 2 注选中后，
-  // 后面两注几乎不会再压上去，让 5 注合起来覆盖面更散、更均匀。
-  const order = ['hot_momentum', 'omission_rebound', 'transition_cooccur', 'balanced_quota'];
-  const usage = new Map();
-  for (let i = 0; i < order.length; i++) {
-    const id = order[i];
-    const meta = DAILY_FIVE_CATALOG.find((m) => m.id === id);
-    const scoreMap = scoreMaps[id];
+  for (const id of ['hot', 'cold', 'shape', 'cover']) {
+    const scoreMap = id === 'cover'
+      ? buildCoverScoreMap(used, scoreMaps.cover)
+      : scoreMaps[id];
     const nums = selectDirectNumbers(scoreMap, selectFeatures, {
       size,
-      pinned: i === 0 ? pinned : [],
-      quota: id === 'balanced_quota',
-      usedElsewhere: usage,
-      excluded: killedNumbers,
-      // 跨注硬上限：同一个号最多被 2 注精选同时选中（再往上只会浪费覆盖面）
-      maxShared: 2
+      pinned: used.size === 0 ? pinned : [],
+      quota: id === 'shape',
+      excluded: [...used]
     });
-    const override = isSpecial ? SPECIAL_CATALOG_OVERRIDE[id] : null;
-    entries.push({
-      ...meta,
-      name: override?.name || meta.name,
-      numbers: nums,
-      killed: killedNumbers.slice(),
-      rationale: [override?.description || meta.description, killedLabel].filter(Boolean).join(' · '),
-      seed: null
-    });
-    for (const n of nums) usage.set(n, (usage.get(n) || 0) + 1);
+    picks.set(id, nums);
+    for (const n of nums) used.add(n);
   }
 
-  const ordered = [entries[0], entries[1], entries[2], entries[3], entries[4]];
+  // #1 完全随机：在 4 注精选没用到的那 49 − 4×size 个号里等概率机选。
+  // 号码内容不影响概率（任何 size 个号全部落在 6 正码里的概率都相同），
+  // 但只从「剩下的号」里抽，才不会破坏 5 注互不重叠的覆盖面。
+  const restCount = ALL_NUMBERS.length - used.size;
+  const rng = mulberry32(seedFor(year, periodNum, randomSalt));
+  picks.set('random', shuffledNumbers(rng, size, [...used]).sort((a, b) => a - b));
 
-  // 共识号：≥2 注精选（不含随机注）共同选中的号码
-  const counts = new Map();
-  for (const e of ordered.slice(1)) {
-    for (const n of e.numbers) counts.set(n, (counts.get(n) || 0) + 1);
-  }
-  const consensus = ALL_NUMBERS.filter((n) => (counts.get(n) || 0) >= 2);
+  const entries = catalog.map((meta) => ({
+    ...meta,
+    numbers: picks.get(meta.id) || [],
+    killed: [],
+    rationale: meta.id === 'random'
+      ? `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}从 4 注精选未用的 ${restCount} 个号里等概率机选`
+      : meta.description,
+    seed: meta.id === 'random' ? seedFor(year, periodNum, randomSalt) : null
+  }));
 
   // 每注的形态统计
-  for (const e of ordered) {
+  for (const e of entries) {
     const st = features.stats;
     const hotList = e.numbers.filter((n) => st[n].freq30 >= 5 || st[n].freq15 >= 3);
     const hot = hotList.length;
@@ -723,6 +668,13 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     };
   }
 
+  // 覆盖面：5 注并集的号码数 = 5×size（互不重叠）
+  const covered = new Set(entries.flatMap((e) => e.numbers));
+  const perTicket = isSpecial ? size / 49 : binomial(6, size) / binomial(49, size);
+  const anyHit = isSpecial
+    ? covered.size / 49                    // 特码：25 个不同号 → 25/49，精确
+    : Math.min(1, 5 * perTicket);          // 直选：5 注互不重叠时 ≈ 5 × 单注概率
+
   return {
     target: { year, periodNum, period: String(periodNum).padStart(3, '0'), date },
     priorSampleCount: priorDraws.length,
@@ -730,12 +682,12 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     randomSalt,
     mode: spec.id,
     size,
-    five: ordered,
-    consensus,
+    five: entries,
+    consensus: [], // 5 注互不重叠 → 不存在「多注共识号」
+    coverage: { distinct: covered.size, perTicket, anyHit, allBlank: 1 - anyHit },
     stats: features.stats,
-    // 杀号信息：killedNumbers = 本期被 5 注统一排除的号码（特码玩法 = 上期特码）
-    killedNumbers,
-    lastSpecial
+    killedNumbers: [],
+    lastSpecial: isSpecial ? (features.lastSpecial ?? null) : null
   };
 }
 

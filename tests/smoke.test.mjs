@@ -55,11 +55,24 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     const text = (id) => window.document.getElementById(id)?.textContent?.trim() || '';
     assert.ok(text('heroPeriod').includes('第299期'), `头部期号异常：${text('heroPeriod')}`);
     assert.equal(window.document.querySelectorAll('#fiveGrid .five-card').length, 5, '5 注卡片没渲染出来');
-    assert.ok(text('heroMeta').includes('已杀上期特码'), '杀号提示没显示');
+    assert.ok(text('heroMeta').includes('覆盖'), '应显示 5 注覆盖的号码数');
+
+    // 5 注互不重叠：25 个不同号码（特码默认玩法，每注 5 个）
+    const five = [...window.document.querySelectorAll('#fiveGrid .fc-balls .lotto-ball')]
+      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
+    assert.equal(five.length, 25, `应有 25 个号码，实际 ${five.length}`);
+    assert.equal(new Set(five).size, 25, '5 注之间不能重复用号');
+
+    // 概率口径行：至少中 1 注 51.02%（特码 25/49）
+    assert.ok(text('featuredCostLine').includes('51.020%'), `覆盖概率没显示：${text('featuredCostLine')}`);
     assert.ok(text('auditLine').includes('2022-132'), '底库体检没列出坏行');
-    assert.ok(window.document.querySelector('.drought-chart'), '连空分布图没渲染');
-    assert.equal(window.document.querySelectorAll('#histMetrics .mc-table thead th').length, 7, '逐注表应含连空两列');
+    assert.equal(window.document.querySelectorAll('#histMetrics .mc-table thead th').length, 5, '逐注对比表应有 5 列');
     assert.ok(text('replayStatus').includes('已回放'), `回放未完成：${text('replayStatus')}`);
+
+    // 精简后不该再出现的区块
+    for (const gone of ['picker', 'check', 'consensusBox', 'explainerLine', 'grid49', 'entryLine']) {
+      assert.equal(window.document.getElementById(gone), null, `区块 ${gone} 应该已被移除`);
+    }
     assert.deepEqual(errors, [], `页面运行报错：${errors.slice(0, 3).join(' | ')}`);
   } finally {
     console.error = origError;

@@ -75,7 +75,7 @@ test('回归样例 2026-287：直选命中口径正确（特码不计入，号�
 
 test('回归样例 2026-287：特码口径只认开奖的最后一个号码', () => {
   const target = pick('2026-287');
-  const rec = buildDailyFiveRecords(ALL, [target], { mode: 'special' })[0];
+  const rec = buildDailyFiveRecords(ALL, [target], { mode: 'special', oddsSpecial: 48 })[0];
   for (const e of rec.five) {
     assert.equal(e.isWin, e.numbers.includes(target.special));
     assert.equal(e.hitCount, e.isWin ? 1 : 0);

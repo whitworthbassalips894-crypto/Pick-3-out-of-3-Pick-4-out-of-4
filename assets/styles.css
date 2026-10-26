@@ -1,5 +1,5 @@
 /* ==========================================================================
-   六合彩 7码复式 · 三中三 / 四中四  —— 浅色成熟风格
+   六合彩 · 每日 5 注（特码 / 三中三 / 四中四）—— 浅色成熟风格
    视觉基准参考 222.html：背景 #f6f8fb / 白卡片 / 文字 #263548 / 次级 #64748b
    边框 #dce4ee / 金色强调 #d4a72c / 轻阴影 / 约 12px 圆角
    ========================================================================== */
@@ -103,7 +103,6 @@ b { font-weight: 800; }
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 20px 22px; box-shadow: var(--shadow);
 }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
 .hint-line { font-size: 0.8rem; color: var(--muted); line-height: 1.7; }
 .footer-note { font-size: 0.78rem; color: var(--faint); text-align: center; margin-top: 20px; }
@@ -129,7 +128,6 @@ b { font-weight: 800; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-primary { background: var(--ink); border-color: var(--ink); color: #fff; }
 .btn-primary:hover { background: #1b2735; border-color: #1b2735; color: #fff; }
-.btn-gold { background: var(--gold); border-color: var(--gold); color: #fff; }
 .btn-danger { color: #c73737; border-color: #f0c8c8; background: #fff; }
 .btn-danger:hover { background: #fff5f5; border-color: var(--hot); }
 .btn-sm { padding: 5px 11px; font-size: 0.78rem; }
@@ -145,7 +143,6 @@ b { font-weight: 800; }
 }
 .select-sm, .input-sm { padding: 6px 9px; font-size: 0.82rem; }
 .textarea-ctrl { width: 100%; min-height: 96px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
-.segmented-bar { display: inline-flex; gap: 4px; background: #f1f5f9; padding: 4px; border-radius: 999px; border: 1px solid var(--line); }
 .seg-btn {
   border: 1px solid transparent; background: transparent; color: var(--muted);
   padding: 5px 13px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; cursor: pointer;
@@ -159,7 +156,6 @@ b { font-weight: 800; }
 
 /* ---------------- 号码球 ---------------- */
 .ball-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
-.ball-row-lg { gap: 10px; margin: 10px 0 6px; }
 .lotto-ball-wrap { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; }
 .lotto-ball {
   width: 40px; height: 40px; border-radius: 50%;
@@ -188,13 +184,17 @@ b { font-weight: 800; }
 
 /* ---------------- ① 今日推荐 ---------------- */
 .hero-card { border-top: 3px solid var(--gold); }
+.cost-line {
+  margin-top: 12px; padding: 9px 12px; border-radius: 9px;
+  background: var(--gold-soft); border: 1px solid #f0e2b6; color: #7a5c0b;
+}
+.cost-line b { color: var(--gold-deep); }
 .hero-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .hero-tags, .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .period-pill {
   background: var(--gold-soft); border: 1px solid #f0dda6; color: var(--gold-deep);
   padding: 4px 13px; border-radius: 999px; font-weight: 800; font-size: 0.88rem;
 }
-.hero-meta { font-size: 0.82rem; color: var(--muted); margin-bottom: 4px; }
 .result-strip {
   margin-top: 14px; padding: 13px 15px; border-radius: 10px;
   background: #f8fafc; border: 1px solid var(--line);
@@ -205,36 +205,11 @@ b { font-weight: 800; }
 .kpi-chip { flex: 1 1 160px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
 .kpi-chip .k-label { font-size: 0.73rem; color: var(--muted); }
 .kpi-chip .k-value { font-size: 1.04rem; font-weight: 800; }
-.win-detail { margin-top: 10px; font-size: 0.84rem; color: var(--gold-deep); line-height: 1.8; }
 .k-value.positive { color: var(--green); }
 .k-value.negative { color: var(--hot); }
 .k-value.gold { color: var(--gold-deep); }
 
-.featured-grid { margin-top: 16px; }
-.featured-box { background: #fbfcfe; border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-.featured-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.featured-title { font-weight: 800; font-size: 0.92rem; }
-.pick3-color { color: var(--green); }
-.pick4-color { color: var(--gold-deep); }
-.ticket-list { display: flex; flex-direction: column; gap: 7px; }
-.ticket-item {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 7px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 9px;
-}
-.ticket-item.ticket-win { border-color: var(--gold); background: #fffbeb; }
-.ticket-nums { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ticket-idx { font-size: 0.72rem; font-weight: 800; color: var(--gold-deep); background: var(--gold-soft); padding: 2px 7px; border-radius: 5px; }
-
 /* ---------------- 每日 5 注 ---------------- */
-.consensus-box {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  margin: 12px 0 4px; padding: 10px 13px;
-  background: linear-gradient(135deg, #fffbeb, #fef3c7);
-  border: 1px solid #fcd34d; border-radius: 10px;
-}
-.consensus-label { font-size: 0.8rem; font-weight: 800; color: var(--gold-deep); }
-.consensus-box .mini-ball { width: 26px; height: 26px; font-size: 11px; }
-
 /* 玩法切换（选三 / 选四） */
 .mode-switch {
   display: inline-flex; flex-wrap: wrap; gap: 4px; background: #f1f5f9;
@@ -295,16 +270,7 @@ b { font-weight: 800; }
 .fc-shape span { background: #f1f5f9; border-radius: 5px; padding: 2px 7px; }
 .fc-hit { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .fc-win { flex-basis: 100%; font-size: 0.72rem; color: var(--gold-deep); font-weight: 700; line-height: 1.6; }
-.fc-fold { border-top: 1px dashed var(--line); padding-top: 8px; }
-.fc-fold > summary {
-  cursor: pointer; font-size: 0.76rem; font-weight: 700; color: var(--muted); list-style: none;
-}
-.fc-fold > summary::-webkit-details-marker { display: none; }
-.fc-fold > summary::before { content: "▸"; color: var(--gold); margin-right: 5px; }
-.fc-fold[open] > summary::before { content: "▾"; }
-.fc-fold-body { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .fc-sub-title { font-size: 0.74rem; font-weight: 800; }
-.fc-fold .ticket-item { padding: 5px 8px; }
 .fc-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: auto; }
 
 /* 5 注逐注命中列 */
@@ -335,7 +301,6 @@ b { font-weight: 800; }
   margin-top: 14px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
 }
-.fold-inner { background: transparent; border-radius: 10px; margin-top: 16px; box-shadow: none; }
 .fold > summary {
   cursor: pointer; padding: 13px 16px; font-weight: 700; font-size: 0.9rem; list-style: none;
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink);
@@ -343,69 +308,16 @@ b { font-weight: 800; }
 .fold > summary::-webkit-details-marker { display: none; }
 .fold > summary::before { content: "▸"; color: var(--gold); transition: transform 0.15s; }
 .fold[open] > summary::before { transform: rotate(90deg); }
-.fold-note { font-size: 0.76rem; font-weight: 400; color: var(--muted); }
 .fold-body { padding: 0 16px 16px; }
 
 /* ---------------- ② 自选 ---------------- */
-.matrix-49 { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
-.matrix-cell {
-  background: #fbfcfe; border: 1px solid var(--line); border-radius: 10px; padding: 7px 2px;
-  display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer;
-  transition: border-color 0.13s, background 0.13s;
-}
-.matrix-cell:hover { border-color: #94a3b8; }
-.matrix-cell.selected { background: var(--gold-soft); border-color: var(--gold); }
-.matrix-cell.pinned { border-color: #f97316; background: #fff2e8; }
-.picker-bar {
-  margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe;
-  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between;
-}
-.picker-selected { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.picker-count { font-weight: 700; font-size: 0.88rem; }
-.picker-count b { color: var(--gold-deep); }
-.picker-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
-#selRow .lotto-ball-wrap { cursor: pointer; }
-.sim-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.sim-row .input-ctrl { flex: 1 1 240px; }
-.combo-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.combos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 7px; max-height: 330px; overflow-y: auto; padding-right: 2px; }
-.combo-chip {
-  padding: 6px 9px; border-radius: 8px; background: #f8fafc; border: 1px solid var(--line);
-  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px; text-align: center; color: var(--ink);
-}
-.combo-chip.combo-win { background: var(--green-soft); border-color: var(--green); color: #0f5132; }
-.combo-chip.combo-partial { border-color: var(--gold); color: var(--gold-deep); background: #fffdf5; }
-
 /* ---------------- ③ 核对 ---------------- */
-.entry-fields { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
-.entry-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 0.76rem; color: var(--muted); }
-.entry-fields label .input-ctrl { width: 118px; }
-.entry-fields .entry-line-wrap { flex: 1 1 230px; }
-.entry-fields .entry-line-wrap .input-ctrl { width: 100%; }
-.entry-slots { margin-top: 14px; min-height: 58px; }
-.check-lines { margin-top: 10px; font-size: 0.86rem; display: flex; flex-direction: column; gap: 6px; }
-.local-box { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); }
-.local-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.84rem; margin-bottom: 8px; }
-.local-item { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.83rem; }
-.local-item:last-child { border-bottom: none; }
-
 /* ---------------- ④ 历史回放 ---------------- */
-.filter-bar {
-  display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center;
-  padding: 13px 15px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px;
-}
-.filter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
-.filter-group.grow { flex: 1 1 220px; }
-.filter-group.grow .input-ctrl { flex: 1 1 180px; }
-.filter-label { font-size: 0.78rem; font-weight: 800; color: var(--ink); }
-.filter-arrow { color: var(--muted); font-size: 0.8rem; }
-.pill-tabs { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .pill {
   border: 1px solid var(--line); background: var(--card); border-radius: 999px;
   padding: 5px 12px; color: var(--muted); font-weight: 700; font-size: 0.79rem; cursor: pointer;
 }
 .pill:hover { border-color: #94a3b8; color: var(--ink); }
-.pill.active { background: var(--ink); border-color: var(--ink); color: #fff; }
 .replay-status { margin: 12px 0 0; }
 
 /* 指标卡（参考 222.html metric-card） */
@@ -443,14 +355,6 @@ b { font-weight: 800; }
 .mc-table td.is-warn, .mc-table td.is-warn b { color: #b45309; font-weight: 800; }
 
 /* 连空分布图：横轴 = 空档长度，纵轴 = 占比 */
-.drought-chart {
-  display: flex; align-items: flex-end; gap: 6px;
-  height: 74px; margin-top: 12px; padding: 6px 8px 0;
-  background: #f8fafc; border: 1px solid var(--line-soft); border-radius: 10px;
-}
-.dc-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 3px; }
-.dc-bar { width: 100%; max-width: 26px; background: linear-gradient(180deg, #f0c14b, #d4a017); border-radius: 3px 3px 0 0; }
-.dc-label { font: 700 0.62rem Consolas, "Courier New", monospace; color: var(--faint); white-space: nowrap; }
 .audit-line { font-size: 0.74rem; line-height: 1.7; color: var(--muted); }
 .audit-line.is-bad { color: #b45309; }
 .audit-list { margin: 6px 0 0; padding-left: 18px; font-size: 0.72rem; color: var(--muted); }
@@ -493,17 +397,14 @@ b { font-weight: 800; }
 .mini-ball.miss { background: #eef2f7; color: #64748b; border: 1px solid var(--line); }
 .mini-ball.is-hit { outline: 2px solid var(--gold); outline-offset: 1px; }
 .mini-ball.special { width: 32px; height: 32px; font-size: 12px; border: 2px solid rgba(255, 255, 255, 0.7); }
-.mini-plus { color: var(--faint); font-weight: 800; font-size: 12px; align-self: center; }
 .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; background: #eef2f7; color: var(--muted); font-size: 11px; font-weight: 700; margin: 1px; white-space: nowrap; }
 .badge.hit { background: #dc2626; color: #fff; font-weight: 800; }
 .badge.miss { background: var(--hot-soft); color: #dc2626; }
 .badge.special { background: #f1f5f9; color: #64748b; border: 1px solid var(--line); }
 .badge.info { background: var(--gold-soft); color: var(--gold-deep); border: 1px solid #f0dda6; }
-.cell-k { font: 900 15px Consolas, "Courier New", monospace; color: var(--ink); }
 .cell-res { min-width: 150px; }
 .cell-res small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
 .win-combos { color: var(--gold-deep); font-weight: 700; }
-.feat-cell { min-width: 130px; }
 .feat-btn {
   border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 2px 8px;
   font-size: 11px; font-weight: 700; color: var(--muted); cursor: pointer;
@@ -513,7 +414,6 @@ b { font-weight: 800; }
 .feat-detail table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .feat-detail th { position: static; background: #eef2f7; color: var(--muted); font-size: 10.5px; padding: 6px 8px; border-radius: 0; border-bottom: 1px solid var(--line); }
 .feat-detail td { padding: 6px 8px; border-bottom: 1px solid var(--line-soft); text-align: left; }
-.feat-ticket { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .empty-row td { padding: 26px 10px; color: var(--muted); text-align: center; font-size: 0.85rem; }
 .load-more-wrap { text-align: center; margin-top: 14px; display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
 
@@ -542,12 +442,6 @@ b { font-weight: 800; }
   /* 吸底复制条在底部，toast 上移避免被遮挡 */
   .toast-container { left: 12px; right: 12px; max-width: calc(100vw - 24px); bottom: 76px; }
   .lotto-ball.lg { width: 44px; height: 44px; font-size: 1rem; }
-  .matrix-49 { gap: 5px; }
-  .matrix-cell .lotto-ball { width: 34px; height: 34px; font-size: 0.82rem; }
-  .matrix-cell { padding: 5px 1px; }
-  .filter-bar { padding: 10px 11px; gap: 10px 12px; }
-  .filter-group { width: 100%; }
-  .filter-group.grow .input-ctrl { flex: 1 1 auto; width: 100%; }
   .metric-grid { grid-template-columns: 1fr 1fr; gap: 9px; }
   .metric-card { padding: 11px; }
   .mc-val { font-size: 1.3rem; }
@@ -595,11 +489,6 @@ b { font-weight: 800; }
 .lotto-ball.ball-consensus {
   box-shadow: 0 0 0 2px #f59e0b, 0 0 0 4px rgba(245, 158, 11, 0.22);
 }
-.explainer-line {
-  background: #f8fafc; border-left: 3px solid var(--gold);
-  padding: 8px 12px; border-radius: 0 8px 8px 0; margin: 10px 0 0;
-}
-
 /* ---------------- 手机端吸底复制条 ---------------- */
 .mobile-copy-bar { display: none; }
 @media (max-width: 780px) {
