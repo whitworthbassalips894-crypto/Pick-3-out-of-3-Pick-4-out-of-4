@@ -6,23 +6,23 @@
   <meta name="theme-color" content="#f6f8fb" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选7码、开奖核对、逐期历史回放（明确标注命中与注数）" />
+  <meta name="description" content="六合彩「7码复式 · 三中三 / 四中四」每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选7码、开奖核对、逐期历史回放（明确标注命中与注数）、数据同步（只追加不覆盖本机数据）" />
   <title>六合彩 7码复式 · 三中三 / 四中四</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.25-r4" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.25-r4" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.25-r4" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.25-r4" />
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r5" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r5" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r5" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r5" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.25-r4" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r5" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
             六合彩 · 7码三中三 / 四中四
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.25-r4</span>
+            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r5</span>
           </div>
           <div class="brand-subtitle" id="latestLine">仅核对前 6 个正码，特码不计入</div>
         </div>
@@ -32,6 +32,7 @@
         <a href="#picker">自选</a>
         <a href="#check">核对</a>
         <a href="#history">回放</a>
+        <a href="#sync">同步</a>
         <a href="#more">更多</a>
       </nav>
     </div>
@@ -62,6 +63,8 @@
         <h2><span class="sec-bar"></span>今日推荐 · 每日 5 注</h2>
         <div class="section-tools">
           <select id="periodSelect" class="select-ctrl" aria-label="选择期数"></select>
+          <button type="button" class="btn btn-sm" id="btnPrevPeriod" title="上一期">◀ 上一期</button>
+          <button type="button" class="btn btn-sm" id="btnNextPeriod" title="下一期">下一期 ▶</button>
           <button type="button" class="btn btn-sm" id="btnNext">回到下一期</button>
         </div>
       </div>
@@ -80,6 +83,13 @@
         </div>
 
         <div id="heroResult"></div>
+
+        <p class="hint-line explainer-line" id="explainerLine">
+          怎么看这 5 注：①「🎲 随机基线」是纯随机对照，用来判断精选到底有没有跑赢随机；
+          ② 其余 4 注是不同权重的精选（热势 / 遗漏回补 / 关联共振 / 三区波色均衡），彼此差异只在权重；
+          ③ 金圈号码是<b>共识号</b>（≥2 注精选同时选中），仅供参考，不代表更热。
+          彩票结果随机，任何策略都不能保证中奖。
+        </p>
 
         <div class="consensus-box" id="consensusBox"></div>
 
@@ -158,7 +168,9 @@
             <input type="text" id="entryLine" class="input-ctrl" placeholder="如：14 43 26 45 03 31 + 23" inputmode="numeric" />
           </label>
           <button type="button" class="btn btn-primary" id="btnSaveDraw">保存这一期</button>
+          <button type="button" class="btn" id="btnUseNextPeriod">用建议期号</button>
         </div>
+        <p class="hint-line" id="entryHint">—</p>
         <div class="ball-row entry-slots" id="entrySlots"></div>
         <div id="checkResult"></div>
 
@@ -260,11 +272,56 @@
       </div>
     </section>
 
-    <!-- ⑤ 更多：设置与数据（全部折叠） -->
+    <!-- ⑤ 数据同步（常驻，不折叠） -->
+    <section id="sync" class="page-section">
+      <div class="section-head">
+        <h2><span class="sec-bar"></span>数据同步</h2>
+        <span class="section-note">读取仓库数据源，只把缺失期号追加写入本机（不改动内置底库）</span>
+      </div>
+
+      <div class="card">
+        <div class="sync-grid" id="syncGrid"></div>
+
+        <div class="sync-actions">
+          <button type="button" class="btn btn-sm" id="btnSyncCheck">👁 仅检查（不写入）</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btnSyncNow">🔄 一键同步</button>
+          <button type="button" class="btn btn-sm" id="btnSyncFix">🛠 以数据源为准修复冲突</button>
+          <button type="button" class="btn btn-sm" id="btnSyncReload">重新读取数据源</button>
+          <button type="button" class="btn btn-sm" id="btnExportDb">导出底库 JSON</button>
+        </div>
+        <p class="hint-line" id="syncStatus">尚未检查数据源，点「仅检查」或「一键同步」读取仓库 JSON。</p>
+
+        <div class="sync-block">
+          <div class="sync-block-head">粘贴导入兜底（官网源码 / 文本 / JSON / CSV）</div>
+          <textarea id="pasteBox" class="textarea-ctrl" placeholder="粘贴开奖网页源码或文本，如「298期 2026-10-25 31 36 40 34 37 43 + 08」"></textarea>
+          <div class="sync-actions">
+            <button type="button" class="btn btn-sm" id="btnPastePreview">解析预览</button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnPasteMerge">✓ 解析并追加缺失期</button>
+            <button type="button" class="btn btn-sm" id="btnPasteDemo">填入示例</button>
+            <button type="button" class="btn btn-sm" id="btnPasteClear">清空</button>
+            <button type="button" class="btn btn-sm" id="btnFetchRemote">尝试直连远程源</button>
+            <span class="hint-line" id="pasteMsg"></span>
+          </div>
+        </div>
+
+        <div class="sync-block">
+          <div class="sync-block-head">本机手动录入（localStorage）</div>
+          <div class="sync-actions">
+            <span class="hint-line">已保存 <b id="localCountSync">0</b> 期</span>
+            <button type="button" class="btn btn-sm" id="btnExportLocal">导出本机开奖</button>
+            <label class="btn btn-sm file-btn">导入本机开奖<input type="file" id="fileInputLocal" accept=".json" hidden /></label>
+            <button type="button" class="btn btn-sm btn-danger" id="btnClearLocalSync">清空本机开奖</button>
+          </div>
+          <p class="hint-line">本机录入的数据只存在这台设备的浏览器里；导出的 JSON 可以换设备导入，或作为备份。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ⑥ 更多：设置与数据（全部折叠） -->
     <section id="more" class="page-section">
       <div class="section-head">
         <h2><span class="sec-bar"></span>更多</h2>
-        <span class="section-note">设置与数据维护，平时不用打开</span>
+        <span class="section-note">设置与版本维护，平时不用打开</span>
       </div>
 
       <details class="fold">
@@ -288,7 +345,7 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.25-r4</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r5</p>
           <p class="hint-line">
             「修复缓存」只清理<b>本工具</b>的 Cache Storage（标记 <code>mark6-pick3-pick4-*</code>）并重新加载页面，
             同域下其它工具的缓存与 Service Worker 不受影响；
@@ -298,32 +355,17 @@
         </div>
       </details>
 
-      <details class="fold">
-        <summary>数据同步与导入</summary>
-        <div class="fold-body">
-          <div class="sync-actions">
-            <button type="button" class="btn btn-sm btn-primary" id="btnSyncRepo">刷新仓库底库 draws.json</button>
-            <button type="button" class="btn btn-sm" id="btnFetchRemote">尝试抓取远程开奖源</button>
-            <button type="button" class="btn btn-sm" id="btnExport">导出底库 JSON</button>
-            <label class="btn btn-sm file-btn">导入文件<input type="file" id="fileInput" accept=".html,.htm,.json,.txt" hidden /></label>
-          </div>
-          <p class="hint-line" id="syncStatus"></p>
-          <textarea id="pasteBox" class="textarea-ctrl" placeholder="粘贴导入：开奖网页源码、网页复制文本，或手工行如「297期 2026-10-24 08 15 22 31 39 45 + 12」"></textarea>
-          <div class="sync-actions">
-            <button type="button" class="btn btn-sm btn-primary" id="btnPasteMerge">✓ 解析并合并</button>
-            <button type="button" class="btn btn-sm" id="btnPasteDemo">填入示例</button>
-            <span class="hint-line" id="pasteMsg"></span>
-          </div>
-          <p class="hint-line">GitHub Actions 已配置每日自动同步（workflows/sync-draws.yml），本地也可运行 <code>npm run sync</code>。</p>
-        </div>
-      </details>
-
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.25-r4</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r5</b> ·
         本站为个人数据整理与娱乐参考工具，彩票结果随机，任何策略都不能保证中奖，请理性对待、量力而行。
       </p>
     </section>
   </main>
+
+  <!-- 手机端吸底复制条：不用滚到顶部也能一键复制今日 5 注 -->
+  <div class="mobile-copy-bar" id="mobileCopyBar">
+    <button type="button" class="btn btn-sm btn-primary" id="btnCopyAllMobile">📋 复制今日 5 注</button>
+  </div>
 
   <div class="toast-container" id="toastContainer"></div>
 
@@ -410,6 +452,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.25-r4"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r5"></script>
 </body>
 </html>
