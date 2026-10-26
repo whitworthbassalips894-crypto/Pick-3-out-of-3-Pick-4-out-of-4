@@ -8,21 +8,21 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="六合彩「三中三 / 四中四」直选每日选号工具：每日 5 注（1 注随机基线 + 4 注精选 + 共识号）、自选 3 / 4 码直选、开奖核对、逐期历史回放（明确标注命中与返奖）、数据同步（只追加不覆盖本机数据）" />
   <title>六合彩 直选 · 三中三 / 四中四</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r8" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r8" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r8" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r8" />
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r9" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r9" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r9" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r9" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.26-r8" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r9" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
             六合彩 · 三中三 / 四中四 直选
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r8</span>
+            <span class="build-tag" id="buildTag" title="构建版本号（用于排查当前运行的版本）">v2026.10.26-r9</span>
           </div>
           <div class="brand-subtitle" id="latestLine">仅核对前 6 个正码，特码不计入</div>
         </div>
@@ -93,7 +93,8 @@
         <p class="hint-line explainer-line" id="explainerLine">
           怎么看这 5 注：①「🎲 随机基线」是纯随机对照，用来判断精选到底有没有跑赢随机；
           ② 其余 4 注是不同权重的精选（热势 / 遗漏回补 / 关联共振 / 三区波色均衡），彼此差异只在权重；
-          ③ 金圈号码是<b>多策略共识号</b>（≥2 注精选同时选中），仅供参考，不代表更热。
+          ③ 金圈号码是<b>多策略共识号</b>（≥2 注精选同时选中），同一个号最多只进 2 注精选，其余号用来铺开覆盖面；
+          ④ <b>特码模式会杀上期特码</b>：上期特码继续当特码的概率只有约 1/49，5 注（含随机注）都把它排除在外。
           命中口径：特码玩法 = 这一注的 5 个号码里<b>包含开奖的最后一个号码（特码）</b>就算中；三中三 / 四中四 = 这一注的号码<b>全部</b>落在 6 个正码里才算中。彩票结果随机，任何策略都不能保证中奖。
         </p>
 
@@ -332,7 +333,7 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r8</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r9</p>
           <p class="hint-line">
             「修复缓存」只清理<b>本工具</b>的 Cache Storage（标记 <code>mark6-pick3-pick4-*</code>）并重新加载页面，
             同域下其它工具的缓存与 Service Worker 不受影响；
@@ -343,7 +344,7 @@
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.26-r8</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r9</b> ·
         本站为个人数据整理与娱乐参考工具，彩票结果随机，任何策略都不能保证中奖，请理性对待、量力而行。
       </p>
     </section>
@@ -439,6 +440,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.26-r8"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r9"></script>
 </body>
 </html>

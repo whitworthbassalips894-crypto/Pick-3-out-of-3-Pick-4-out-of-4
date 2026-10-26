@@ -82,12 +82,68 @@ test('特码玩法的 4 注精选用的是特码自己的历史（名称与说�
   assert.deepEqual(pick3.five.slice(1).map((e) => e.name), ['热势恒强', '遗漏回补', '关联共振', '三区波色均衡']);
 });
 
-test('特码玩法的选号要照顾三区分布（每区最多 2 个号）', () => {
-  const plan = generateDailyFive(ALL, TARGET, { mode: 'special' });
-  for (const e of plan.five) {
-    const zoneCount = { 1: 0, 2: 0, 3: 0 };
-    for (const n of e.numbers) zoneCount[n <= 16 ? 1 : n <= 33 ? 2 : 3]++;
-    assert.ok(Math.max(...Object.values(zoneCount)) <= 2, `${e.name} 三区分布过于集中`);
+test('特码玩法的 4 注精选要照顾三区分布（每区最多 2 个号；随机注不设限）', () => {
+  // 多期抽查，确认是「规则」而不是某一期的巧合
+  for (const target of ALL.slice(1, 41).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
+    const plan = generateDailyFive(ALL, target, { mode: 'special' });
+    for (const e of plan.five.slice(1)) {
+      const zoneCount = { 1: 0, 2: 0, 3: 0 };
+      for (const n of e.numbers) zoneCount[n <= 16 ? 1 : n <= 33 ? 2 : 3]++;
+      assert.ok(Math.max(...Object.values(zoneCount)) <= 2, `${target.periodNum} 期 ${e.name} 三区分布过于集中`);
+    }
+  }
+});
+
+test('特码玩法杀上期特码：5 注（含随机注）都不含上期特码，且重摇后依然不含', () => {
+  for (const target of ALL.slice(1, 31).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
+    const prior = getPriorDraws(ALL, target);
+    const lastSpecial = prior[0].special;
+    assert.ok(Number.isInteger(lastSpecial) && lastSpecial >= 1 && lastSpecial <= 49);
+
+    for (const randomSalt of [0, 1, 2, 7]) {
+      const plan = generateDailyFive(ALL, target, { mode: 'special', randomSalt });
+      assert.deepEqual(plan.killedNumbers, [lastSpecial], '杀号信息应记录上期特码');
+      assert.equal(plan.lastSpecial, lastSpecial);
+      for (const e of plan.five) {
+        assert.ok(!e.numbers.includes(lastSpecial), `${target.periodNum} 期 ${e.code} ${e.name} 含上期特码 ${lastSpecial}`);
+        assert.deepEqual(e.killed, [lastSpecial]);
+        assert.ok(e.rationale.includes('杀上期特码'), '说明里要写清已杀上期特码');
+        assert.equal(e.numbers.length, 5);
+      }
+      // 随机注仍在 48 个号里机选，只是不含上期特码
+      assert.equal(new Set(plan.five[0].numbers).size, 5);
+    }
+  }
+});
+
+test('特码玩法可以关掉杀号（excludeLastSpecial: false）', () => {
+  const plan = generateDailyFive(ALL, TARGET, { mode: 'special', excludeLastSpecial: false });
+  assert.deepEqual(plan.killedNumbers, []);
+  for (const e of plan.five) assert.deepEqual(e.killed, []);
+});
+
+test('正码玩法（三中三 / 四中四）不杀号：上期特码不是命中对象', () => {
+  for (const mode of ['pick3', 'pick4']) {
+    const plan = generateDailyFive(ALL, TARGET, { mode });
+    assert.deepEqual(plan.killedNumbers, []);
+    assert.equal(plan.lastSpecial, null);
+    for (const e of plan.five) assert.deepEqual(e.killed, []);
+  }
+});
+
+test('4 注精选里同一个号码最多进 2 注（跨注重复硬上限）', () => {
+  for (const target of ALL.slice(1, 61).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
+    const plan = generateDailyFive(ALL, target, { mode: 'special' });
+    const counts = new Map();
+    for (const e of plan.five.slice(1)) for (const n of e.numbers) counts.set(n, (counts.get(n) || 0) + 1);
+    for (const [n, c] of counts) {
+      assert.ok(c <= 2, `${target.periodNum} 期号码 ${n} 出现在 ${c} 注精选里`);
+    }
+    // 共识号仍然是「≥2 注精选同选」，不会被这条规则吃掉
+    const expected = [...counts.entries()].filter(([, c]) => c >= 2).map(([n]) => n).sort((a, b) => a - b);
+    assert.deepEqual([...plan.consensus].sort((a, b) => a - b), expected);
+    // 5 注合起来覆盖面应该比 4 注「无脑重复」更宽
+    assert.ok(new Set(plan.five.flatMap((e) => e.numbers)).size >= 15);
   }
 });
 

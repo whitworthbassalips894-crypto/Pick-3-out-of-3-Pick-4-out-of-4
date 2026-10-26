@@ -490,8 +490,13 @@ function renderToday() {
     : `${t.year}年第${t.period}期 · 已开奖复盘`;
 
   const covered = new Set(plan.five.flatMap((e) => e.numbers));
+  // 特码玩法：5 注统一杀掉上期特码（随机注也一样），这里把杀号结果显式写出来
+  const killed = Array.isArray(plan.killedNumbers) ? plan.killedNumbers : [];
+  const killNote = killed.length
+    ? ` · 已杀上期特码 ${killed.map((n) => pad2(n)).join('、')}（5 注均不含）`
+    : '';
   $('heroMeta').textContent = isSpecial
-    ? `特码（每注推 ${size} 个号）· 5 注共覆盖 ${covered.size} 个不同号码 · 基于最近 ${plan.featureWindow} 期特码特征`
+    ? `特码（每注推 ${size} 个号）· 5 注共覆盖 ${covered.size} 个不同号码 · 基于最近 ${plan.featureWindow} 期特码特征${killNote}`
     : `${modeName(mode)}（每注推 ${size} 个号）· 5 注共覆盖 ${covered.size} 个不同号码 · 基于最近 ${plan.featureWindow} 期正码特征`;
   $('btnResetRandom').disabled = state.randomSalt === 0;
 
@@ -532,7 +537,10 @@ function renderToday() {
     explainer.innerHTML = `
       怎么看这 5 注：①「🎲 随机基线」是纯随机对照，用来判断精选到底有没有跑赢随机；
       ② 其余 4 注是不同权重的精选（${isSpecial ? '特码热势 / 特码遗漏回补 / 特码尾数共振 / 特码三区均衡' : '热势 / 遗漏回补 / 关联共振 / 三区波色均衡'}），彼此差异只在权重；
-      ③ 金圈号码是<b>多策略共识号</b>（≥2 注精选同时选中），仅供参考，不代表更热。
+      ③ 金圈号码是<b>多策略共识号</b>（≥2 注精选同时选中），但同一个号最多只会出现在 2 注精选里，剩下的号用来铺开覆盖面。
+      ${killed.length
+        ? `④ <b>本期杀号</b>：已把上期特码 ${killed.map((n) => pad2(n)).join('、')} 从 5 注里全部剔除（它下期继续当特码的概率只有约 1/49），随机注也在剩下 48 个号里机选。`
+        : '④ 正码玩法的命中对象是 6 个正码，上期特码不参与判定，因此不做杀号。'}
       命中口径：${isSpecial
         ? '特码玩法 = 这一注的 5 个号码里<b>包含开奖的最后一个号码（特码）</b>就算中，6 个正码只作展示'
         : '三中三 / 四中四 = 这一注的号码<b>全部</b>落在 6 个正码里才算中，特码不计入'}。彩票结果随机，任何策略都不能保证中奖。`;

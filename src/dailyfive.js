@@ -153,9 +153,19 @@ function seedFor(year, periodNum, salt) {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** Fisher–Yates 洗牌（可复现） */
-function shuffledNumbers(rng, count) {
-  const pool = ALL_NUMBERS.slice();
+/**
+ * Fisher–Yates 洗牌（可复现）
+ * @param {() => number} rng
+ * @param {number} count 取几个号
+ * @param {Iterable<number>} [excluded] 硬性排除的号码（例如特码玩法的上期特码）
+ */
+function shuffledNumbers(rng, count, excluded = []) {
+  const excludedSet = new Set();
+  for (const raw of excluded || []) {
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 1 && n <= 49) excludedSet.add(n);
+  }
+  const pool = excludedSet.size ? ALL_NUMBERS.filter((n) => !excludedSet.has(n)) : ALL_NUMBERS.slice();
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -391,7 +401,15 @@ export function computeDailyFiveFeatures(priorDraws = [], targetMeta = {}) {
     };
   }
 
-  return { stats, specialStats, pairCount, sampleSize: w60.length, priorCount: priorDraws.length };
+  return {
+    stats,
+    specialStats,
+    pairCount,
+    sampleSize: w60.length,
+    priorCount: priorDraws.length,
+    lastSpecial,
+    lastSpecialTail
+  };
 }
 
 /* ------------------------------------------------------------ 评分与选号 */
@@ -528,11 +546,24 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
   const selectFeatures = isSpecial ? { ...features, pairCount: null } : features;
   const pinned = normalizeNumbers(options.pinnedNumbers || [], { sort: true, maxCount: size });
 
+  // ————————————————————————————————————————————————————————————
+  // 杀上期特码：特码玩法的命中对象就是「开奖的最后一个号码」，
+  // 而这个号在下一期继续当特码的概率只有约 1/49（≈2.04%），属于典型的低价值号。
+  // 所以 5 注全部把它排除在候选池之外：
+  //   #1 随机注 —— 在剩下 48 个号里随机（仍然是纯随机，只是不含上期特码）；
+  //   #2~#5 精选 —— 直接把该号从候选里剔除，其余历史特征照旧打分。
+  // 正码玩法（三中三 / 四中四）的命中对象是 6 个正码，上期特码不参与判定，因此不杀号。
+  // ————————————————————————————————————————————————————————————
+  const killLastSpecial = isSpecial && options.excludeLastSpecial !== false;
+  const lastSpecial = isSpecial ? (features.lastSpecial ?? null) : null;
+  const killedNumbers = killLastSpecial && lastSpecial != null ? [lastSpecial] : [];
+  const killedLabel = killedNumbers.length ? `已杀上期特码 ${String(killedNumbers[0]).padStart(2, '0')}` : '';
+
   const entries = [];
 
-  // #1 随机基线：按期号定种机选 size 个号（纯随机对照）
+  // #1 随机基线：按期号定种机选 size 个号（纯随机对照，不含上期特码）
   const rng = mulberry32(seedFor(year, periodNum, randomSalt));
-  const randomNums = shuffledNumbers(rng, size);
+  const randomNums = shuffledNumbers(rng, size, killedNumbers);
   entries.push({
     id: 'random',
     code: '#1',
@@ -540,13 +571,19 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     icon: '🎲',
     random: true,
     numbers: randomNums,
-    rationale: randomSalt > 0 ? `已重摇第 ${randomSalt} 次（按期号定种）` : '按目标期号定种机选的纯随机对照',
+    killed: killedNumbers.slice(),
+    rationale: [
+      randomSalt > 0 ? `已重摇第 ${randomSalt} 次（按期号定种）` : '按目标期号定种机选的纯随机对照',
+      killedNumbers.length ? `池子为除上期特码外的 48 个号（${killedLabel}）` : ''
+    ].filter(Boolean).join(' · '),
     seed: seedFor(year, periodNum, randomSalt)
   });
 
-  // #2~#5 精选
+  // #2~#5 精选：四注各自风格不变（热势 / 遗漏回补 / 尾数共振 / 三区均衡），
+  // 统一不带入上期特码，并逐注累计「跨注已用次数」：同一个号被 2 注选中后，
+  // 后面两注几乎不会再压上去，让 5 注合起来覆盖面更散、更均匀。
   const order = ['hot_momentum', 'omission_rebound', 'transition_cooccur', 'balanced_quota'];
-  const usedElsewhere = new Set();
+  const usage = new Map();
   for (let i = 0; i < order.length; i++) {
     const id = order[i];
     const meta = DAILY_FIVE_CATALOG.find((m) => m.id === id);
@@ -555,17 +592,21 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
       size,
       pinned: i === 0 ? pinned : [],
       quota: id === 'balanced_quota',
-      usedElsewhere: i === order.length - 1 ? usedElsewhere : new Set()
+      usedElsewhere: usage,
+      excluded: killedNumbers,
+      // 跨注硬上限：同一个号最多被 2 注精选同时选中（再往上只会浪费覆盖面）
+      maxShared: 2
     });
     const override = isSpecial ? SPECIAL_CATALOG_OVERRIDE[id] : null;
     entries.push({
       ...meta,
       name: override?.name || meta.name,
       numbers: nums,
-      rationale: override?.description || meta.description,
+      killed: killedNumbers.slice(),
+      rationale: [override?.description || meta.description, killedLabel].filter(Boolean).join(' · '),
       seed: null
     });
-    for (const n of nums) usedElsewhere.add(n);
+    for (const n of nums) usage.set(n, (usage.get(n) || 0) + 1);
   }
 
   const ordered = [entries[0], entries[1], entries[2], entries[3], entries[4]];
@@ -611,7 +652,10 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     size,
     five: ordered,
     consensus,
-    stats: features.stats
+    stats: features.stats,
+    // 杀号信息：killedNumbers = 本期被 5 注统一排除的号码（特码玩法 = 上期特码）
+    killedNumbers,
+    lastSpecial
   };
 }
 

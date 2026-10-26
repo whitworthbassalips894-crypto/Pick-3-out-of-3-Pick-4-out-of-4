@@ -92,6 +92,46 @@ test('selectDirectNumbers 的跨注去重参数会降低重复号码的优先级
   assert.ok(keptDedup >= keptPlain, '跨注去重不应该增加重复号码');
 });
 
+test('selectDirectNumbers 的 excluded 是硬排除：即使分数最高也不会被选中', () => {
+  const features = makeFeatures();
+  const scoreMap = {};
+  for (let n = 1; n <= 49; n++) scoreMap[n] = n <= 10 ? 20 : 1; // 1~10 号分数最高
+  const banned = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  for (const size of [3, 4, 5]) {
+    const nums = selectDirectNumbers(scoreMap, features, { size, excluded: banned });
+    assert.equal(nums.length, size);
+    for (const n of banned) assert.ok(!nums.includes(n), `排除了 ${n} 号却仍然被选中`);
+  }
+});
+
+test('selectDirectNumbers 的 maxShared 是跨注重复硬上限', () => {
+  const features = makeFeatures();
+  const scoreMap = {};
+  for (let n = 1; n <= 49; n++) scoreMap[n] = n <= 6 ? 20 : 1;
+  // 1~6 号都已经被前面两注用过 → 这一注不允许再选
+  const usage = new Map([1, 2, 3, 4, 5, 6].map((n) => [n, 2]));
+  const nums = selectDirectNumbers(scoreMap, features, { size: 5, usedElsewhere: usage, maxShared: 2 });
+  assert.equal(nums.length, 5);
+  for (const n of usage.keys()) assert.ok(!nums.includes(n), `${n} 号已用满 2 次，不应再出现`);
+});
+
+test('五码注的形态：三区最多 2 个、奇偶贴近 2:3 / 3:2', () => {
+  const features = makeFeatures();
+  const scoreMap = {};
+  for (let n = 1; n <= 49; n++) scoreMap[n] = (n * 7) % 23;
+  for (const jitter of [0, 1, 2, 3, 4, 5]) {
+    const map = {};
+    for (let n = 1; n <= 49; n++) map[n] = scoreMap[n] + ((n + jitter) % 3);
+    const nums = selectDirectNumbers(map, features, { size: 5 });
+    assert.equal(nums.length, 5);
+    const zoneCount = { 1: 0, 2: 0, 3: 0 };
+    for (const n of nums) zoneCount[features.stats[n].zone]++;
+    assert.ok(Math.max(...Object.values(zoneCount)) <= 2, `五码注不应有三码同区：${JSON.stringify(zoneCount)}`);
+    const odd = nums.filter((n) => n % 2 === 1).length;
+    assert.ok(odd >= 2 && odd <= 3, `五码注奇偶应 2:3 或 3:2，实际奇数 ${odd} 个`);
+  }
+});
+
 test('selectDirectNumbers 缺少特征表时不会崩（仍返回合法号码）', () => {
   const nums = selectDirectNumbers({}, { stats: {} }, { size: 3 });
   assert.equal(nums.length, 3);
