@@ -1,14 +1,19 @@
 /**
- * 「每日 5 组」引擎（特码 / 三中三 / 四中四 共用一套骨架）
+ * 选号引擎（特码 = 一张 12 号清单 / 三中三 / 四中四 = 5 组）
  *
  * 先把概率说清楚（这也是本引擎唯一的数学依据）：
  *   每期开奖相互独立，任何选号方法都**不能**改变单注命中概率：
- *     特码    每组 3 个号（3 注，1 中 1），单注命中 P = 1/49 ≈ 2.0408%
+ *     特码    1 个号 = 1 注（1 中 1），单注命中 P = 1/49 ≈ 2.0408%；本工具每期给 12 个号 = 12 注
  *     三中三  每注 3 个号全落在 6 个正码里，P = C(6,3)/C(49,3) ≈ 0.1086%
  *     四中四  每注 4 个号全落在 6 个正码里，P = C(6,4)/C(49,4) ≈ 0.00708%
  *   能改变的只有「覆盖面」：各注号码越少重叠，N 注合计「至少中 1 注」的概率越高。
  *
- * 5 组分工（风格不同，概率相同）：
+ * 两种形态（r17 起分开）：
+ *   特码   → **一张 12 号清单**（generateDailyFive 走独立分支 + selectSpecialList）
+ *            1 个号就是一注，号码之间没有「组」的概念，分组只是从三中三继承下来的壳。
+ *   直选   → 5 组骨架（一组 = 一注组合，分组才有意义），分工见下。
+ *
+ * 直选 5 组分工（风格不同，概率相同）：
  *   #1 🎲 完全随机  **纯 49 选 size 等概率机选**，允许与精选重复（对照组，可重摇）
  *   #2 🔥 热号      近 30 期出现次数最多的号（顺势风格）
  *   #3 🎯 冷号      遗漏最久的号（回补风格）
@@ -78,25 +83,29 @@ export { PLAY_MODES };
 /** 直选玩法的号码个数：3 = 三中三，4 = 四中四（特码是 1 中 1，不走直选口径） */
 export const DIRECT_SIZES = [3, 4];
 
-/** 特码玩法的说明（命中对象是特码，统计口径换成「该号作为特码出现」的历史） */
-const SPECIAL_DESCRIPTIONS = {
-  random: '从 01–49 等概率机选 3 个号（纯随机对照，允许与精选重复，可重摇）',
-  hot: '近 30 期作为特码出现最多的 3 个号（3 个号 = 3 注）',
-  cold: '作为特码遗漏最久的 3 个号（3 个号 = 3 注）',
-  shape: '上 / 中 / 下三区各 1 个号，兼顾奇偶与大小',
-  cover: '补齐 #2~#4 未覆盖的尾数与区段，3 个号铺开'
-};
-
 /**
- * 按玩法取「每日 5 注」目录（特码玩法换一套说明文字，名称保持一致）
+ * 特码的「目录」只有一项：整张 12 号清单
+ *
+ * 特码是 1 中 1（1 个号 = 1 注），号码之间没有「组」的概念，
+ * 所以这里不再返回 5 组，而是返回一张清单——页面据此渲染成单张卡片。
+ *
  * @param {string} mode 'special' / 'pick3' / 'pick4'
- * @returns {{id:string, code:string, name:string, icon:string, description:string, random:boolean}[]}
+ * @returns {{id:string, code:string, name:string, icon:string, description:string, random:boolean, layout?:string}[]}
  */
 export function catalogForMode(mode = 'pick3') {
-  const isSpecial = getPlayMode(mode).id === 'special';
-  return DAILY_FIVE_CATALOG.map((m) => (
-    isSpecial ? { ...m, description: SPECIAL_DESCRIPTIONS[m.id] || m.description } : { ...m }
-  ));
+  const spec = getPlayMode(mode);
+  if (spec.id === 'special') {
+    return [{
+      id: 'specialList',
+      code: '清单',
+      name: `特码 ${spec.size} 号`,
+      icon: '📋',
+      random: false,
+      layout: 'list',
+      description: `${spec.size} 个号 = ${spec.size} 注，奇偶 / 大小 / 三区均衡，其中 🎲 3 个为纯随机对照`
+    }];
+  }
+  return DAILY_FIVE_CATALOG.map((m) => ({ ...m }));
 }
 
 /**
@@ -518,41 +527,49 @@ function buildScoreMaps(features, year, periodNum) {
 }
 
 /**
- * 特码模式专用打分表（4 注精选）
+ * 特码模式专用打分表（清单内三种精选风格）
  *
  * 命中对象是开奖的最后一个号码（特码），所以只用「该号作为特码出现过」的统计：
  *   rel = 出现次数 × 49 / 窗口期数（1.0 = 平均水平）
+ *
+ * 注意 balance（形态均衡）的打分口径：
+ *   旧实现是 `-0.10 × |n − 25|`，也就是「越靠中间分越高」——全域对称、完全不看历史，
+ *   于是每期的均衡组永远是 16 / 25 / 34-35 这几个号（实测最近 300 期里
+ *   `16 25 35` 占了 24%）。现在改成「温号」口径（近 30 期作为特码的出现次数接近均值），
+ *   真正的均衡由 selectSpecialList() 的全局约束（奇偶 / 大小 / 三区 / 尾数）来保证。
  */
 function buildSpecialScoreMaps(features, year, periodNum) {
   const { specialStats } = features;
-  const maps = { hot: {}, cold: {}, shape: {}, cover: {} };
+  const maps = { hot: {}, cold: {}, balance: {} };
+  // 特码在 30 期窗口里的理论均值：30 / 49 ≈ 0.612 次
+  const mean30 = 30 / 49;
   for (let n = 1; n <= 49; n++) {
     const st = specialStats[n];
     const j2 = deterministicJitter(year, periodNum, n, 11);
     const j3 = deterministicJitter(year, periodNum, n, 23);
     const j4 = deterministicJitter(year, periodNum, n, 37);
-    const j5 = deterministicJitter(year, periodNum, n, 53);
     const rel30 = (st.freq30 * 49) / 30;
     const rel60 = (st.freq60 * 49) / 60;
 
-    // #2 特码热号：近 30 / 60 期作为特码出现的频率 + 上期特码邻号
+    // 热号：近 30 / 60 期作为特码出现的频率 + 上期特码邻号
     maps.hot[n] =
       2.6 * rel30 +
       1.6 * rel60 +
       (st.isNeighbor ? 0.7 : 0) +
       j2 * 0.9;
 
-    // #3 特码冷号：作为特码的遗漏分位 + 遗漏期数
+    // 冷号：作为特码的遗漏分位 + 遗漏期数
     maps.cold[n] =
       3.0 * st.omissionPct +
       0.03 * Math.min(st.omission, 60) +
       j3 * 0.4;
 
-    // #4 形态均衡：靠近中值 25
-    maps.shape[n] = -0.10 * Math.abs(n - 25) + j4 * 0.7;
-
-    // #5 补位覆盖：动态计算，这里只给底分
-    maps.cover[n] = j5 * 0.5;
+    // 形态均衡（温号）：越接近「平均出现次数」越有分，离得越远（烫 / 冰）越低
+    const deviation = Math.abs(st.freq30 - mean30);
+    maps.balance[n] =
+      1.6 / (1 + deviation) +
+      0.25 * (1 - Math.abs(st.omissionPct - 0.5)) +
+      j4 * 0.8;
   }
   return maps;
 }
@@ -576,6 +593,290 @@ function buildCoverScoreMap(used = new Set(), baseMap = {}) {
       0.3 * (baseMap[n] || 0);
   }
   return out;
+}
+
+/* ------------------------------------------- 特码：一张 12 号清单（1 中 1） */
+
+/**
+ * 特码清单的风格定义
+ *
+ * 特码是「1 中 1」：1 个号 = 1 注，所以「本期的号码」天生就是**一张清单**，
+ * 而不是「5 个组」。分组是三中三 / 四中四的形态（一组 = 一注组合），
+ * 特码沿用分组只会让人误以为每组是个整体。
+ *
+ * 12 个号的分工（合计 = 12 注）：
+ *   🎲 完全随机  3 个  49 选 3 等概率机选，纯对照，可重摇
+ *   🔥 热号      3 个  近 30 / 60 期作为特码最活跃
+ *   🎯 冷号      2 个  作为特码遗漏最久
+ *   ⚖️ 形态均衡  4 个  补齐全局奇偶 / 大小 / 三区 / 尾数
+ */
+export const SPECIAL_LIST_STYLES = [
+  { id: 'random', count: 3, icon: '🎲', name: '完全随机', description: '49 个号等概率机选（纯随机对照，可重摇）' },
+  { id: 'hot', count: 3, icon: '🔥', name: '热号', description: '近 30 / 60 期作为特码最活跃的号' },
+  { id: 'cold', count: 2, icon: '🎯', name: '冷号', description: '作为特码遗漏最久的号' },
+  { id: 'balance', count: 4, icon: '⚖️', name: '形态均衡', description: '补齐奇偶 / 大小 / 三区 / 尾数，让整张清单均衡' }
+];
+
+/**
+ * 12 号整体要达到的形态目标
+ *
+ *   奇偶 6:6、大小 6:6、三区 4:4:4、同一尾数最多出现 2 次（🎲 纯随机号不受约束）
+ * 这几个目标是「看上去专业」的地方：它不改变中奖概率（每个号永远是 1/49），
+ * 但能保证清单不会挤在某个区间或某个尾数上。
+ */
+export const SPECIAL_SHAPE_TARGET = { odd: 6, big: 6, zone: 4, maxTailRepeat: 2 };
+
+/** 特码清单的四个子区：一区 / 二区小号 / 二区大号 / 三区 */
+const SPECIAL_SUBZONES = ['z1', 'z2s', 'z2b', 'z3'];
+
+/** 号码 → 子区（z1 = 01–16，z2s = 17–24，z2b = 25–33，z3 = 34–49） */
+function subzoneOf(n) {
+  if (n <= 16) return 'z1';
+  if (n <= 24) return 'z2s';
+  if (n <= 33) return 'z2b';
+  return 'z3';
+}
+
+/**
+ * 12 个号的理想「分区模型」
+ *
+ * 三区 4:4:4 是外壳，里面还要满足大小 6:6：
+ *   一区（01–16）4 个 —— 全小
+ *   二区小（17–24）2 个 —— 小
+ *   二区大（25–33）2 个 —— 大
+ *   三区（34–49）4 个 —— 全大
+ * 于是大 = 2 + 4 = 6、小 = 4 + 2 = 6，奇偶再单独按 6:6 分配。
+ * 这个模型让「三区 4:4:4 + 大小 6:6 + 奇偶 6:6」可以同时成立（随机号占位后仍会算残余目标）。
+ */
+const SPECIAL_IDEAL_MODEL = { z1: 4, z2s: 2, z2b: 2, z3: 4 };
+
+/** 把一组号码按子区计数 */
+function countSubzones(nums) {
+  const out = { z1: 0, z2s: 0, z2b: 0, z3: 0 };
+  for (const n of nums) out[subzoneOf(n)]++;
+  return out;
+}
+
+/**
+ * 由「随机号已经占了哪些子区」推出剩下 9 个精选号的子区目标
+ *
+ * 理想模型减掉随机号即可；若随机号把某个子区撑爆（残余为负），
+ * 就把多出来的坑位让给其他子区，保证总数仍然是 9 个。
+ */
+function residualModel(randomNums, size) {
+  const rand = countSubzones(randomNums);
+  const resid = {};
+  for (const z of SPECIAL_SUBZONES) resid[z] = SPECIAL_IDEAL_MODEL[z] - rand[z];
+
+  const total = () => SPECIAL_SUBZONES.reduce((a, z) => a + resid[z], 0);
+  const want = size - randomNums.length;
+
+  // 先把负数压平到 0（坑位不够就认了）
+  for (const z of SPECIAL_SUBZONES) if (resid[z] < 0) resid[z] = 0;
+
+  // 少了就补到「离理想最远」的子区；多了就从「超出最多」的子区收回
+  let guard = 0;
+  while (total() < want && guard++ < 60) {
+    let pick = null;
+    let bestGap = -Infinity;
+    for (const z of SPECIAL_SUBZONES) {
+      const gap = SPECIAL_IDEAL_MODEL[z] - (rand[z] + resid[z]);
+      if (gap > bestGap) { bestGap = gap; pick = z; }
+    }
+    if (!pick) break;
+    resid[pick]++;
+  }
+  guard = 0;
+  while (total() > want && guard++ < 60) {
+    let pick = null;
+    let worst = Infinity;
+    for (const z of SPECIAL_SUBZONES) {
+      const gap = SPECIAL_IDEAL_MODEL[z] - (rand[z] + resid[z]);
+      if (resid[z] > 0 && gap < worst) { worst = gap; pick = z; }
+    }
+    if (!pick) break;
+    resid[pick]--;
+  }
+  return resid;
+}
+
+/**
+ * 生成某一期的特码清单
+ *
+ * 特码是「1 中 1」：1 个号 = 1 注，所以本期号码天生就是**一张清单**（不是 5 个组）。
+ *
+ * 步骤：
+ *   1. 🎲 用「期号 + 盐值」定种，49 选 3 等概率机选随机号（纯随机，不排除任何号，可重摇）
+ *   2. 按「理想分区模型 − 随机号已占的子区」算出剩下 9 个号的子区目标
+ *   3. 在每个子区里按综合分（热 / 冷 / 温号）取号，并保证奇偶合计 6:6、同尾最多 2 个
+ *   4. 给这 9 个号贴风格标签：最热的 3 个 🔥、其次最冷的 2 个 🎯、剩下 4 个 ⚖️
+ *
+ * 随机号先选、精选避开它 → 12 个号天然互不重复，不浪费任何一注。
+ * 严格无未来函数：只用严格早于目标期的特码历史；同一期 + 同一盐值永远得到同一张清单。
+ *
+ * @param {{ hot: Record<number,number>, cold: Record<number,number>, balance: Record<number,number> }} scoreMaps
+ * @param {{ year?: number, periodNum?: number, randomSalt?: number, size?: number, pinnedNumbers?: number[] }} [options]
+ * @returns {{ numbers: number[], styles: Map<number,string>, breakdown: object[], seed: number }}
+ */
+export function selectSpecialList(scoreMaps, options = {}) {
+  const year = Number(options.year || 2026);
+  const periodNum = Number(options.periodNum || 1);
+  const randomSalt = Number(options.randomSalt || 0);
+  const size = Math.max(4, Math.min(49, Math.trunc(Number(options.size || 12))));
+  const pinned = (Array.isArray(options.pinnedNumbers) ? options.pinnedNumbers : [])
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 49);
+
+  // 各风格的号数；总和不等于 size 时补齐 / 收缩到 balance
+  const stylesPlan = SPECIAL_LIST_STYLES.map((st) => ({ ...st }));
+  let sum = stylesPlan.reduce((a, st) => a + st.count, 0);
+  stylesPlan[stylesPlan.length - 1].count += size - sum;
+  if (stylesPlan[stylesPlan.length - 1].count < 0) stylesPlan[stylesPlan.length - 1].count = 0;
+  sum = stylesPlan.reduce((a, st) => a + st.count, 0);
+  stylesPlan[0].count += size - sum;
+  const randomCount = Math.max(0, Math.min(size, stylesPlan[0].count));
+
+  // ——— 1) 纯随机：49 选 count，等概率，不排除任何号
+  const seed = seedFor(year, periodNum, randomSalt);
+  const rng = mulberry32(seed);
+  const randoms = shuffledNumbers(rng, randomCount).sort((a, b) => a - b);
+  const taken = new Set(randoms);
+
+  // ——— 2) 子区目标
+  const resid = residualModel(randoms, size);
+
+  // ——— 3) 综合打分（归一化到 0~1），只为「风格」服务，不改变命中概率
+  const normalizeMap = (map) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let n = 1; n <= 49; n++) {
+      const v = Number(map?.[n] || 0);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    const span = hi - lo;
+    const out = {};
+    for (let n = 1; n <= 49; n++) {
+      const v = Number(map?.[n] || 0);
+      out[n] = span > 1e-12 ? (v - lo) / span : 0.5;
+    }
+    return out;
+  };
+  const hotN = normalizeMap(scoreMaps.hot);
+  const coldN = normalizeMap(scoreMaps.cold);
+  const balN = normalizeMap(scoreMaps.balance);
+  const valueOf = (n) => 0.45 * hotN[n] + 0.30 * coldN[n] + 0.25 * balN[n]
+    + deterministicJitter(year, periodNum, n, 71) * 0.06;
+
+  // 奇偶目标：全清单 6:6
+  const targetOdd = Math.round(size / 2);
+  const randOdd = randoms.filter((n) => n % 2 === 1).length;
+  let oddLeft = Math.max(0, Math.min(size - randoms.length, targetOdd - randOdd));
+
+  // 需要从每个子区取几个奇数（尽量摊开，避免整段同奇偶）
+  const oddQuota = { z1: 0, z2s: 0, z2b: 0, z3: 0 };
+  {
+    const order = SPECIAL_SUBZONES.slice().sort((a, b) => resid[b] - resid[a] || (a < b ? -1 : 1));
+    let round = 0;
+    while (oddLeft > 0 && round < 8) {
+      let progressed = false;
+      for (const z of order) {
+        if (oddLeft <= 0) break;
+        if (oddQuota[z] >= resid[z]) continue;
+        const available = ALL_NUMBERS.filter((n) => subzoneOf(n) === z && n % 2 === 1 && !taken.has(n)).length;
+        if (oddQuota[z] >= available) continue;
+        oddQuota[z]++;
+        oddLeft--;
+        progressed = true;
+      }
+      if (!progressed) break;
+      round++;
+    }
+  }
+
+  // ——— 填充：每个子区按 (奇数个数, 偶数个数) 取最高分的号
+  const tailCount = new Array(10).fill(0);
+  for (const n of randoms) tailCount[n % 10]++;
+  const curated = [];
+
+  const takeFromBucket = (zone, oddWant, evenWant) => {
+    const pool = ALL_NUMBERS
+      .filter((n) => subzoneOf(n) === zone && !taken.has(n))
+      .sort((a, b) => valueOf(b) - valueOf(a) || (a - b));
+    const need = [[1, oddWant], [0, evenWant]];
+    for (const [parity, count] of need) {
+      let filled = 0;
+      // 先挑尾数还没满 2 个的，再放宽
+      for (const relax of [false, true]) {
+        for (const n of pool) {
+          if (filled >= count) break;
+          if (taken.has(n)) continue;
+          if ((n % 2 === 1 ? 1 : 0) !== parity) continue;
+          if (!relax && tailCount[n % 10] >= 2) continue;
+          taken.add(n);
+          curated.push(n);
+          tailCount[n % 10]++;
+          filled++;
+        }
+      }
+    }
+  };
+
+  for (const zone of SPECIAL_SUBZONES) {
+    if (resid[zone] <= 0) continue;
+    takeFromBucket(zone, oddQuota[zone], resid[zone] - oddQuota[zone]);
+  }
+
+  // 尾数兜底：同一个尾数最多 2 个（12 个号共 10 个尾数，必然有重复，但不能扎堆）
+  // 只在**同子区 + 同奇偶**之间换号，所以换完之后三区 / 大小 / 奇偶都不会被破坏。
+  // 例外：🎲 纯随机号不受约束（随机就该是随机的，否则不叫对照组）。
+  for (let t = 0; t < 10; t++) {
+    let guard = 0;
+    while (tailCount[t] > 2 && guard++ < 6) {
+      const outIdx = curated.findIndex((n) => n % 10 === t);
+      if (outIdx < 0) break;
+      const out = curated[outIdx];
+      const inn = ALL_NUMBERS.find((n) => !taken.has(n)
+        && subzoneOf(n) === subzoneOf(out)
+        && (n % 2 === 1) === (out % 2 === 1)
+        && tailCount[n % 10] < 2);
+      if (inn == null) break;
+      taken.delete(out);
+      taken.add(inn);
+      curated[outIdx] = inn;
+      tailCount[out % 10]--;
+      tailCount[inn % 10]++;
+    }
+  }
+
+  // 固定号码：用户指定时并入清单（替换掉分数最低的精选号）
+  for (const n of pinned) {
+    if (taken.has(n)) continue;
+    if (curated.length >= size - randoms.length) break;
+    taken.add(n);
+    curated.push(n);
+  }
+
+  // ——— 4) 贴风格标签：#热 3 / 冷 2 / 均衡 4
+  const hotNeed = Math.max(0, Math.min(stylesPlan[1].count, curated.length));
+  const coldNeed = Math.max(0, Math.min(stylesPlan[2].count, curated.length - hotNeed));
+  const byHot = curated.slice().sort((a, b) => hotN[b] - hotN[a] || a - b);
+  const hotPicks = new Set(byHot.slice(0, hotNeed));
+  const rest = curated.filter((n) => !hotPicks.has(n));
+  const byCold = rest.slice().sort((a, b) => coldN[b] - coldN[a] || a - b);
+  const coldPicks = new Set(byCold.slice(0, coldNeed));
+
+  const styles = new Map();
+  for (const n of randoms) styles.set(n, 'random');
+  for (const n of curated) styles.set(n, hotPicks.has(n) ? 'hot' : coldPicks.has(n) ? 'cold' : 'balance');
+
+  const numbers = [...taken].sort((a, b) => a - b);
+  const breakdown = SPECIAL_LIST_STYLES.map((st) => {
+    const nums = numbers.filter((n) => styles.get(n) === st.id);
+    return { ...st, count: nums.length, numbers: nums };
+  });
+
+  return { numbers, styles, breakdown, seed };
 }
 
 /**
@@ -654,11 +955,90 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
 
   const priorDraws = getPriorDraws(allDraws, { year, periodNum });
   const features = computeDailyFiveFeatures(priorDraws, { year, periodNum, date });
-  const scoreMaps = isSpecial
-    ? buildSpecialScoreMaps(features, year, periodNum)
-    : buildScoreMaps(features, year, periodNum);
-  // 特码玩法的命中对象是特码，正码之间的共现加分不适用
-  const selectFeatures = isSpecial ? { ...features, pairCount: null } : features;
+
+  // ————————————————————————————————————————————————————————————————
+  // 特码走**独立分支**：1 中 1（1 个号 = 1 注）→ 一张 12 号清单
+  // 三中三 / 四中四 仍然走「5 组」骨架（每组 = 一注组合）
+  // ————————————————————————————————————————————————————————————————
+  if (isSpecial) {
+    const scoreMaps = buildSpecialScoreMaps(features, year, periodNum);
+    const list = selectSpecialList(scoreMaps, {
+      year,
+      periodNum,
+      randomSalt,
+      size,
+      pinnedNumbers: options.pinnedNumbers || []
+    });
+    const meta = catalogForMode('special')[0];
+    const st = features.stats;
+    const hotList = list.numbers.filter((n) => features.specialStats[n].freq30 >= 3);
+    const coldList = list.numbers.filter((n) => !hotList.includes(n)
+      && (features.specialStats[n].omission >= 5 || features.specialStats[n].freq30 === 0));
+    const odd = list.numbers.filter((n) => features.specialStats[n].odd).length;
+    const entry = {
+      ...meta,
+      numbers: list.numbers,
+      styles: Object.fromEntries(list.styles),
+      breakdown: list.breakdown,
+      killed: [],
+      rationale: `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}`
+        + `特码 ${list.numbers.length} 号：`
+        + list.breakdown.map((b) => `${b.icon}${b.numbers.length}`).join(' / ')
+        + `；整体奇偶 ${odd}:${list.numbers.length - odd}、三区 `
+        + `${list.numbers.filter((n) => n <= 16).length}-${list.numbers.filter((n) => n > 16 && n <= 33).length}-`
+        + `${list.numbers.filter((n) => n > 33).length}`
+        + '；🎲 为 49 个号等概率机选（纯随机对照，可重摇），其余 9 个受全局均衡约束',
+      seed: list.seed,
+      shape: {
+        hot: hotList.length,
+        warm: list.numbers.length - hotList.length - coldList.length,
+        cold: coldList.length,
+        red: list.numbers.filter((n) => st[n].color === 'red').length,
+        blue: list.numbers.filter((n) => st[n].color === 'blue').length,
+        green: list.numbers.filter((n) => st[n].color === 'green').length,
+        zone1: list.numbers.filter((n) => n <= 16).length,
+        zone2: list.numbers.filter((n) => n > 16 && n <= 33).length,
+        zone3: list.numbers.filter((n) => n > 33).length,
+        odd,
+        even: list.numbers.length - odd,
+        big: list.numbers.filter((n) => n >= 25).length,
+        small: list.numbers.filter((n) => n <= 24).length,
+        sum: list.numbers.reduce((a, b) => a + b, 0)
+      }
+    };
+
+    const distinct = list.numbers.length;
+    const perBet = 1 / 49;
+    const anyHit = Math.min(1, distinct / 49);
+    return {
+      target: { year, periodNum, period: String(periodNum).padStart(3, '0'), date },
+      priorSampleCount: priorDraws.length,
+      featureWindow: features.sampleSize,
+      randomSalt,
+      mode: 'special',
+      size,
+      layout: 'list',
+      five: [entry],
+      consensus: [],
+      listStyles: list.breakdown,
+      coverage: {
+        distinct,
+        overlap: 0, // 随机号先选、精选避开它 → 12 个号天然互不重复
+        perTicket: anyHit, // 整张清单至少中 1 注 = 12/49
+        perBet, // 单注（1 个号）= 1/49
+        betsPerOption: distinct, // 1 个号 = 1 注
+        totalBets: distinct,
+        anyHit,
+        allBlank: 1 - anyHit
+      },
+      stats: features.stats,
+      killedNumbers: [],
+      lastSpecial: features.lastSpecial ?? null
+    };
+  }
+
+  const scoreMaps = buildScoreMaps(features, year, periodNum);
+  const selectFeatures = features;
   const pinned = normalizeNumbers(options.pinnedNumbers || [], { sort: true, maxCount: size });
   const catalog = catalogForMode(spec.id);
 
@@ -807,9 +1187,13 @@ export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
   const { stake = 10, odds3 = 650, odds4 = 7500, oddsSpecial = 48 } = options;
   const spec = getPlayMode(options.mode);
   const size = spec.size;
-  // 自选必须正好是当前玩法的号码个数（特码 = 1 个号），多填 / 少填都不生成记录
+  // 直选必须正好是 size 个号；特码是 1 中 1（1 个号 = 1 注），允许 1 ~ size 个号
   const picks = normalizeNumbers(options.customNumbers || [], { sort: true });
-  if (picks.length !== size) return [];
+  if (spec.id === 'special') {
+    if (picks.length < 1 || picks.length > size) return [];
+  } else if (picks.length !== size) {
+    return [];
+  }
 
   const records = [];
   for (const draw of targets) {
@@ -824,7 +1208,7 @@ export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
       five: [{
         id: 'custom',
         code: '自选',
-        name: `当前自选 ${size} 码`,
+        name: `当前自选 ${picks.length} 码`,
         icon: '✍️',
         random: false,
         numbers: picks,
@@ -893,8 +1277,12 @@ export function summarizeDailyFive(records = [], options = {}) {
       agg.periods++;
       agg.hitSum += e.hitCount || 0;
       if (e.isWin) agg.winPeriods++;
-      agg.bets += betsPerOption; // 特码每组 3 注，成本要按注算
-      agg.cost += stake * betsPerOption;
+      // 特码：1 个号 = 1 注，注数 = 这一组实际号码个数（清单 12 个 / 自选可能只有 3 个）
+      const betsThis = spec.id === 'special'
+        ? Math.max(1, (e.numbers || []).length)
+        : betsPerOption;
+      agg.bets += betsThis;
+      agg.cost += stake * betsThis;
       agg.payout += e.payout || 0;
     }
   }

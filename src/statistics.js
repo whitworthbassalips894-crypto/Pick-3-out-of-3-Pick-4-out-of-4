@@ -48,7 +48,7 @@ export function comb(n, k) {
  *   coverageNumbers：N 注理论最多覆盖的不同号码数
  */
 export function anyHitBaseline(baseline, tickets = 5) {
-  // 特码：单个选项 = 3 注，用「每组至少中 1 注」的概率算独立近似
+  // 特码：整张清单 = 12 注，用「整张至少中 1 注」的概率算独立近似
   const p = Number(baseline?.hitProbPerTicket ?? baseline?.hitProb) || 0;
   const size = Number(baseline?.size) || 0;
   const population = Number(baseline?.population) || 49;
@@ -77,18 +77,24 @@ export function formatPercent(p, digits = 2) {
 /**
  * 特码基线：**1 中 1**——1 个号就是 1 注，开奖的特码正好是它才算命中
  *
- * 本工具每组给 3 个号（= 3 注），5 组就是 15 注：
+ * 本工具每期给一张 **12 个号** 的清单（= 12 注）：
  *   单注（1 个号）P = 1/49 ≈ 2.0408%，公平赔率 49 倍
- *   每组（3 个号）至少中 1 注 = 3/49 ≈ 6.122%
- *   5 组 15 注（号码互不重复）至少中 1 注 = 15/49 ≈ 30.612%（各号互斥，可直接相加）
- * 市面常见 48 倍 → EV = 48/49 ≈ 97.96%（抽水约 2%）
+ *   整张清单 12 个号至少中 1 注 = 12/49 ≈ 24.489%（各号互斥，可直接相加）
+ *   中了净赚 48 − 12 = 36 注（收益率 300%）
+ * 市面常见 48 倍 → 期望回报率 48/49 ≈ 97.96%（抽水约 2%）
  *
- * 注意：这不是「3 个号包一个特码、赔 48」，而是 3 个号各算 1 注、各赔 48 倍。
+ * 为什么是 12：
+ *   期望值 EV = −n/49（n = 注数），**永远是负的且与 n 成正比** —— 买越多亏越多，
+ *   任何 n 都不存在「最优」。n = 24 只是让「中奖概率 × 命中净利」最大（体验指标），
+ *   不是收益指标。12 落在「中了赚 3 倍、约 4 期中 1 次」的实操甜点区，
+ *   再往上（15 / 24 / 49 注）收益率会一路掉到 220% / 100% / 0%。
+ *
+ * 注意：这不是「12 个号包一个特码、赔 48」，而是 12 个号各算 1 注、各赔 48 倍。
  */
 export function specialBaseline() {
   const population = 49;
-  const size = 3; // 每个选项 3 个号
-  const bets = 3; // 3 个号 = 3 注
+  const size = 12; // 每期清单 12 个号
+  const bets = 12; // 1 个号 = 1 注 → 12 注
   const hitProb = 1 / population; // 单注 = 单个号码
   return {
     size,
@@ -99,17 +105,17 @@ export function specialBaseline() {
     playMode: 'special',
     /** 单注（1 个号）命中概率 */
     hitProb,
-    /** 每个选项（size 个号）至少中 1 注的概率 */
+    /** 整张清单（size 个号）至少中 1 注的概率 */
     hitProbPerTicket: Math.min(1, size * hitProb),
     /** 理论公平赔率（1 : 1 的公平值） */
     fairOdds: population,
-    /** 每个选项场均中奖注数的期望 */
+    /** 整张清单场均中奖注数的期望 */
     expectedHits: size * hitProb,
     /**
-     * 每期 5 组（= 15 注）里至少中 1 注的概率：特码各号互斥，号码不重复时可直接相加 → 15/49。
-     * （若随机组与精选用号重复，实际值见 anyHitProbability() 的并集口径。）
+     * 每期清单里至少中 1 注的概率：特码各号互斥，号码不重复时可直接相加 → 12/49。
+     * （若随机号与精选撞号，实际值见 anyHitProbability() 的并集口径。）
      */
-    anyHitProb: Math.min(1, 5 * size * hitProb)
+    anyHitProb: Math.min(1, size * hitProb)
   };
 }
 
