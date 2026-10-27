@@ -226,3 +226,50 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   assert.ok(!html.includes('35 注'), '页面不应再出现 35 注复式');
   assert.ok(!html.includes('胆码'), '页面不应再出现胆码');
 });
+
+/* ------------------------------------------------- 自动同步 workflow 的位置 */
+
+test('自动同步 workflow：源文件在 ci/，且 GitHub 只认 .github/workflows/', () => {
+  // GitHub Actions 只读取 .github/workflows/ 下的文件。
+  // 这个仓库的历史 bug：工作流放在根目录 workflows/ 里，于是从来没被执行过。
+  const src = path.join(ROOT, 'ci', 'sync-draws.yml');
+  assert.ok(fs.existsSync(src), '必须有 ci/sync-draws.yml（工作流源文件）');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'workflows')), '仓库根目录不该有 workflows/（GitHub 不读这个位置）');
+
+  const yml = fs.readFileSync(src, 'utf-8');
+  assert.match(yml, /^on:/m, '必须声明触发条件');
+  assert.match(yml, /schedule:/, '必须配置定时触发，否则底库不会自动更新');
+  assert.match(yml, /scripts\/sync_latest\.mjs/, '必须调用同步脚本');
+  assert.match(yml, /data\/draws\.json/, '必须提交更新后的底库文件');
+  assert.match(yml, /contents:\s*write/, '必须授予 contents: write 才能 push');
+  assert.match(yml, /workflow_dispatch:/, '需要保留手动触发入口（Actions 页面可以点运行）');
+
+  // 安装脚本能把源文件原样搬运到 GitHub 真正读取的位置
+  const installer = read('scripts/install_workflow.mjs');
+  assert.match(installer, /ci', 'sync-draws\.yml'|ci\/sync-draws\.yml|sync-draws\.yml/, '安装脚本必须搬运 ci/sync-draws.yml');
+  assert.match(installer, /\.github/, '安装脚本必须写到 .github/workflows/');
+
+  // 如果已经安装过，两份必须完全一致（避免改了源文件忘记同步）
+  const installed = path.join(ROOT, '.github', 'workflows', 'sync-draws.yml');
+  if (fs.existsSync(installed)) {
+    assert.equal(
+      fs.readFileSync(installed, 'utf-8'),
+      yml,
+      '.github/workflows/sync-draws.yml 与 ci/sync-draws.yml 内容不一致，请重新运行 npm run install:workflow'
+    );
+  }
+
+  // 同步脚本要能自己生成 draws.js（只更新 json 会导致页面仍用旧数据）
+  const script = read('scripts/build_history_db.mjs');
+  assert.match(script, /writeDatabaseFiles/, '必须有写库函数');
+  assert.match(script, /JS_PATH/, '必须同时写 data/draws.js（页面实际 import 的是这个文件）');
+});
+
+test('「一键同步」读的是仓库静态文件，同步状态必须说明数据来源', () => {
+  const app = read('src/app.js');
+  assert.match(app, /data\/draws\.json\?_r=/, '一键同步应带 _r 参数绕过缓存');
+  assert.match(app, /describeSourceLag/, '同步状态必须显示底库新鲜度（落后几期）');
+  assert.match(app, /GitHub Actions/, '库里落后时要说明是自动任务的问题，而不是含糊地说「同步失败」');
+  // 不能再用「远程源被浏览器跨域限制拦下」这种没验证过的结论
+  assert.ok(!app.includes('远程源被浏览器跨域限制拦下'), '失败原因必须来自真实报错，不能猜');
+});

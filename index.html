@@ -8,21 +8,21 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="六合彩每日 5 组：特码（1 中 1，每组 3 号 = 3 注，赔 48）/ 三中三 / 四中四，1 组完全随机 + 4 组风格精选，附公平赔率对照与逐期回放。" />
   <title>六合彩 · 每日 5 组</title>
-  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r15" />
-  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r15" />
-  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r15" />
-  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r15" />
+  <link rel="manifest" href="./manifest.webmanifest?v=2026.10.26-r16" />
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg?v=2026.10.26-r16" />
+  <link rel="apple-touch-icon" href="./assets/icon.svg?v=2026.10.26-r16" />
+  <link rel="stylesheet" href="./assets/styles.css?v=2026.10.26-r16" />
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="brand-group">
-        <img src="./assets/icon.svg?v=2026.10.26-r15" alt="" class="brand-icon" />
+        <img src="./assets/icon.svg?v=2026.10.26-r16" alt="" class="brand-icon" />
         <div class="brand-text">
           <div class="brand-title">
             每日 5 组
             <span class="brand-badge" id="dbBadge">加载中…</span>
-            <span class="build-tag" id="buildTag" title="构建版本号">v2026.10.26-r15</span>
+            <span class="build-tag" id="buildTag" title="构建版本号">v2026.10.26-r16</span>
           </div>
           <div class="brand-subtitle" id="latestLine">正在读取底库…</div>
         </div>
@@ -141,7 +141,7 @@
             <button type="button" class="btn btn-sm" id="btnSyncFix">🛠 以数据源为准修复冲突</button>
             <button type="button" class="btn btn-sm" id="btnExportDb">导出底库 JSON</button>
           </div>
-          <p class="hint-line" id="syncStatus">尚未读取数据源。同步只把缺失期号追加到本机，不改动内置底库。</p>
+          <p class="hint-line" id="syncStatus">尚未读取数据源。同步读的是仓库里的 data/draws.json（由 GitHub Actions 每日自动抓取更新），只把缺失期号追加到本机，不改动内置底库。</p>
 
           <textarea id="pasteBox" class="textarea-ctrl" placeholder="粘贴开奖文本兜底，如「298期 2026-10-25 31 36 40 34 37 43 + 08」"></textarea>
           <div class="sync-actions">
@@ -186,12 +186,12 @@
             <button type="button" class="btn btn-sm" id="btnRepairCache">修复缓存（保留本地数据）</button>
             <button type="button" class="btn btn-sm btn-danger" id="btnResetServiceWorker">彻底重置（注销 SW）</button>
           </div>
-          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r15</p>
+          <p class="hint-line" id="updateStatus">当前构建：v2026.10.26-r16</p>
         </div>
       </details>
 
       <p class="footer-note">
-        构建版本 <b id="buildTagFooter">v2026.10.26-r15</b> ·
+        构建版本 <b id="buildTagFooter">v2026.10.26-r16</b> ·
         彩票每期独立，任何选号方法都不改变命中概率；本站只做数据整理与娱乐参考，请理性对待、量力而行。
       </p>
     </section>
@@ -281,6 +281,6 @@
     })();
   </script>
 
-  <script type="module" src="./src/app.js?v=2026.10.26-r15"></script>
+  <script type="module" src="./src/app.js?v=2026.10.26-r16"></script>
 </body>
 </html>

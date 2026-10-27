@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {
   MAX_APPEND_PER_SYNC,
   compareDrawSets,
+  dayOfYear,
+  describeSourceLag,
+  drawOrdinal,
   formatSyncSummary,
   nextPeriodMeta,
   periodId
@@ -126,4 +129,59 @@ test('formatSyncSummary 输出可读结论', () => {
 test('formatSyncSummary 无差异时明确说明', () => {
   const text = formatSyncSummary(compareDrawSets([d(2026, 1)], [d(2026, 1)]));
   assert.match(text, /没有可追加的期次/);
+});
+
+/* ------------------------------------------------ 底库新鲜度（落后几期） */
+
+test('dayOfYear：当年第几天 = 第几期', () => {
+  assert.equal(dayOfYear('2026-01-01'), 1);
+  assert.equal(dayOfYear('2026-10-27'), 300);
+  assert.equal(dayOfYear('2024-12-31'), 366); // 闰年
+  assert.equal(dayOfYear('2026-02-31'), null); // 假日期
+  assert.equal(dayOfYear(''), null);
+});
+
+test('drawOrdinal：跨年也能连续比较', () => {
+  assert.equal(drawOrdinal(2026, 1) + 1, drawOrdinal(2026, 2));
+  assert.equal(drawOrdinal(2025, 365) + 1, drawOrdinal(2026, 1));
+  assert.equal(drawOrdinal(2026, 0), null);
+});
+
+test('describeSourceLag：当天就是最新', () => {
+  const r = describeSourceLag({ id: '2026-300', year: 2026, periodNum: 300, date: '2026-10-27' }, '2026-10-27');
+  assert.equal(r.ok, true);
+  assert.equal(r.stale, false);
+  assert.equal(r.lagPeriods, 0);
+  assert.match(r.message, /已是最新/);
+});
+
+test('describeSourceLag：只差今天这一期（开奖未公布）不算落后', () => {
+  const r = describeSourceLag({ id: '2026-298', year: 2026, periodNum: 298, date: '2026-10-25' }, '2026-10-26');
+  assert.equal(r.stale, false);
+  assert.equal(r.lagPeriods, 1);
+  assert.equal(r.expectedId, '2026-299');
+  assert.match(r.message, /落后 1 期/);
+  assert.match(r.message, /还没公布/);
+});
+
+test('describeSourceLag：落后 2 期以上判定为 stale，并点明是仓库文件没更新', () => {
+  const r = describeSourceLag({ id: '2026-298', year: 2026, periodNum: 298, date: '2026-10-25' }, '2026-10-27');
+  assert.equal(r.ok, true);
+  assert.equal(r.stale, true);
+  assert.equal(r.lagPeriods, 2);
+  assert.equal(r.expectedId, '2026-300');
+  assert.match(r.message, /落后 2 期/);
+  assert.match(r.message, /GitHub Actions/);
+});
+
+test('describeSourceLag：跨年也按天数算', () => {
+  const r = describeSourceLag({ id: '2026-300', year: 2026, periodNum: 300, date: '2026-10-27' }, '2027-01-01');
+  assert.equal(r.expectedId, '2027-001');
+  assert.equal(r.lagPeriods, 66); // 2026-300（10-27）→ 2027-001（01-01）相隔 66 天
+});
+
+test('describeSourceLag：没有本地数据 / 非法日期时不瞎算', () => {
+  assert.equal(describeSourceLag(null, '2026-10-27').ok, false);
+  assert.match(describeSourceLag(null, '2026-10-27').message, /还没有开奖数据/);
+  assert.equal(describeSourceLag({ year: 2026, periodNum: 298 }, 'not-a-date').ok, false);
 });
