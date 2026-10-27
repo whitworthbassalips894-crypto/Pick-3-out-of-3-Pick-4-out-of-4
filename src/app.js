@@ -25,7 +25,7 @@ import {
 } from './constants.js';
 import { evaluateTickets } from './combinatorics.js';
 import { mergeDraws, normalizeDrawRecord, parseDrawsInput } from './parser.js';
-import { compareDrawSets, formatSyncSummary } from './sync.js';
+import { compareDrawSets, describeSourceLag, formatSyncSummary } from './sync.js';
 import { formatFiveTickets, formatSingleTicket } from './copy.js';
 import {
   buildDailyFiveRecords,
@@ -1169,6 +1169,13 @@ function bindEvents() {
 /* ==================== 数据同步 ==================== */
 
 /** 数据源缓存（本次会话内复用） */
+/** 本地时区的今天（YYYY-MM-DD）。不能用 toISOString：北京时间 00:00–08:00 会算成昨天 */
+function todayIso() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 const syncState = {
   remote: null, // 数据源解析出的开奖记录
   meta: null, // 数据源元信息 { updatedAt, latestId, totalCount }
@@ -1220,10 +1227,14 @@ function renderSyncPanel() {
   const r = syncState.last;
   const cell = (label, value, cls) =>
     `<div class="sync-cell${cls ? ' ' + cls : ''}"><span class="sc-label">${label}</span><span class="sc-value">${value}</span></div>`;
+  // 新鲜度：仓库文件靠 GitHub Actions 更新，这里如实显示落后几期
+  const lag = describeSourceLag(localLatest, todayIso());
   grid.innerHTML = [
     cell('本地最后一期', localLatest ? localLatest.id : '—'),
     cell('数据源最新一期', syncState.meta ? syncState.meta.latestId : '未读取'),
     cell('数据源更新时间', syncState.meta ? formatStamp(syncState.meta.updatedAt) : '—'),
+    cell('本机新鲜度', lag.ok ? (lag.stale ? `落后 ${lag.lagPeriods} 期` : '已是最新') : '—',
+      lag.ok ? (lag.stale ? 'is-warn' : 'is-good') : ''),
     cell('本次可追加', r ? `${r.missingCount} 期` : '—', r && r.missingCount > 0 ? 'is-good' : ''),
     cell('冲突 / 缺口', r ? `${r.conflictCount} / ${r.gapCount}` : '—', r && (r.conflictCount || r.gapCount) ? 'is-warn' : '')
   ].join('');
@@ -1254,25 +1265,44 @@ const REMOTE_CANDIDATES = [
 
 /**
  * 尝试抓取远程开奖源页面（每个候选地址都有超时，失败就换下一个）
- * @returns {Promise<string>} 抓到的 HTML 文本（失败返回空串）
+ *
+ * ⚠ 现实情况：上游是 https 的非标准端口 2025、证书链不完整，浏览器必然失败
+ *   （证书错误 / CORS / 混合内容），所以这里只可能拿到失败原因。
+ *   真正的抓取放在 GitHub Actions 里跑（.github/workflows/sync-draws.yml）。
+ *
+ * @returns {Promise<{ html: string, reason: string, attempts: string[] }>}
+ *   html：抓到且看起来像开奖页时返回页面文本，否则空串
+ *   reason：一句话失败原因（用于页面展示，不再笼统说「被 CORS 拦下」）
+ *   attempts：每个候选地址的实际错误，便于排查
  */
 async function fetchRemoteSourceHtml(timeoutMs = 5000) {
+  const attempts = [];
   for (const u of REMOTE_CANDIDATES) {
+    const short = u.length > 60 ? `${u.slice(0, 57)}…` : u;
     let timer = null;
     try {
       const ctrl = new AbortController();
       timer = setTimeout(() => ctrl.abort(), timeoutMs);
       const res = await fetch(u, { cache: 'no-store', signal: ctrl.signal });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        attempts.push(`${short} → HTTP ${res.status}`);
+        continue;
+      }
       const text = await res.text();
-      if (text?.includes('期(开奖时间:')) return text;
-    } catch {
-      /* 试下一个 */
+      if (text?.includes('期(开奖时间:')) return { html: text, reason: '', attempts };
+      attempts.push(`${short} → 页面里找不到开奖记录（站点结构可能变了）`);
+    } catch (err) {
+      const msg = err?.name === 'AbortError' ? `超时 ${timeoutMs}ms` : (err?.message || '网络错误');
+      attempts.push(`${short} → ${msg}`);
     } finally {
       if (timer) clearTimeout(timer);
     }
   }
-  return '';
+  return {
+    html: '',
+    reason: attempts.length ? '浏览器直连上游全部失败（上游为非标准端口 + 证书问题，只能由服务器端抓取）' : '未配置远程源',
+    attempts
+  };
 }
 
 /**
@@ -1309,8 +1339,15 @@ async function runSync({ write = false, fix = false } = {}) {
     }
 
     if (!write) {
-      status.textContent = `检查完成（未写入任何数据）：${formatSyncSummary(r)}`;
-      showToast('检查完成');
+      const lagNow = describeSourceLag(state.allDraws[0], todayIso());
+      // 仓库里已经有新期次 → 是本机落后，点「一键同步」就能补上；
+      // 仓库里也没有 → 才是仓库文件/自动任务的问题。
+      status.textContent = r.appendable.length
+        ? `检查完成（未写入任何数据）：${formatSyncSummary(r)}。仓库文件里已经有这些期次，点「一键同步」即可补齐本机。`
+        : `检查完成（未写入任何数据）：${formatSyncSummary(r)}。${lagNow.message}`;
+      showToast(r.appendable.length
+        ? `可补 ${r.appendable.length} 期，点「一键同步」`
+        : (lagNow.stale ? `仓库底库落后 ${lagNow.lagPeriods} 期` : '检查完成'));
       return;
     }
 
@@ -1321,23 +1358,28 @@ async function runSync({ write = false, fix = false } = {}) {
       syncState.last = compareDrawSets(state.allDraws, syncState.remote);
       renderSyncPanel();
       const ids = r.appendable.map((d) => d.id);
-      status.textContent = `✓ 已把 ${r.appendable.length} 期（${ids[0]} ~ ${ids[ids.length - 1]}）追加写入本机，现在共 ${state.allDraws.length} 期；内置底库未改动。`;
+      const lagAfter = describeSourceLag(state.allDraws[0], todayIso());
+      status.textContent = `✓ 已把 ${r.appendable.length} 期（${ids[0]} ~ ${ids[ids.length - 1]}）追加写入本机，现在共 ${state.allDraws.length} 期；内置底库未改动。${lagAfter.message}`;
       showToast(`已同步 ${r.appendable.length} 期`);
       return;
     }
 
-    // 仓库数据源没有更新 → 再试一次远程开奖源（代理可能被浏览器跨域拦截）
-    status.textContent = '仓库数据源已是最新，正在尝试直连远程开奖源…';
-    const html = await fetchRemoteSourceHtml();
-    if (!html) {
-      status.textContent = `同步完成：${formatSyncSummary(r)}；本机没有需要新增的期次。（远程源被浏览器跨域限制拦下，可改用下方「粘贴导入兜底」）`;
-      showToast('已是最新，无需同步');
+    // 仓库数据源没有更新 → 再试一次远程开奖源（浏览器基本会失败，但要如实报原因）
+    const lag = describeSourceLag(state.allDraws[0], todayIso());
+    status.textContent = `${lag.base}。仓库文件没有新期次，正在尝试直连上游…`;
+    const remote = await fetchRemoteSourceHtml();
+    if (!remote.html) {
+      status.textContent = `同步完成：${formatSyncSummary(r)}。${lag.message}。`
+        + `上游直连失败：${remote.reason}`
+        + (remote.attempts.length ? `（${remote.attempts.join('；')}）` : '')
+        + ' 可先用下方「粘贴导入」临时补期。';
+      showToast(lag.ok && lag.stale ? `底库落后 ${lag.lagPeriods} 期` : '已是最新，无需同步');
       return;
     }
-    const parsed = parseDrawsInput(html);
+    const parsed = parseDrawsInput(remote.html);
     const r2 = compareDrawSets(state.allDraws, parsed);
     if (!r2.appendable.length) {
-      status.textContent = `同步完成：仓库数据源与远程源都没有更新（远程源最新 ${r2.remoteLatest?.id || '未知'}）。`;
+      status.textContent = `同步完成：仓库数据源与上游都没有更新的期次（上游最新 ${r2.remoteLatest?.id || '未知'}）。${lag.message}`;
       showToast('已是最新，无需同步');
       return;
     }
@@ -1348,7 +1390,8 @@ async function runSync({ write = false, fix = false } = {}) {
     status.textContent = `✓ 已从远程开奖源补齐 ${r2.appendable.length} 期（${ids2[0]} ~ ${ids2[ids2.length - 1]}），现在共 ${state.allDraws.length} 期；内置底库未改动。`;
     showToast(`已从远程源补齐 ${r2.appendable.length} 期`);
   } catch (err) {
-    status.textContent = `读取数据源失败：${err.message}。可改用下方「粘贴导入兜底」。`;
+    status.textContent = `读取仓库数据源 ./data/draws.json 失败：${err.message}。`
+      + '可能原因：仓库文件未部署 / 网络或离线缓存异常。可先用下方「粘贴导入」临时补期。';
     showToast('读取数据源失败');
     console.warn('[sync]', err);
   } finally {

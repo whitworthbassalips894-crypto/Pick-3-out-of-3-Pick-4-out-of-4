@@ -58,18 +58,56 @@
 2. **历史回放** —— 可选最近 30 / 60 / 120 / 365 期或全部（1759 期），逐期用「该期之前的数据」重算 5 组并核对命中，
    给出逐组命中注数与 ROI、随机基线对照（无未来函数）；换范围会立刻重算，重摇随机组也会同步重算回放。
 3. **数据** —— 折叠：读取仓库 `data/draws.json`（仅检查 / 一键同步 / 以数据源为准修复冲突）、粘贴文本兜底（含「填入示例」）、
-   导入 / 导出本机开奖、底库体检。
+   导入 / 导出本机开奖、底库体检。面板里会显示「本机新鲜度」：底库最新一期 与「今天应有的那一期」差几期。
 4. **设置** —— 折叠：本金与赔率、版本与缓存维护。
 
 已下线：自选号码、6 码试算、手动录入开奖、共识号、连空分布图、年份 / 命中 / 搜索等筛选控件。
+
+## 数据从哪来（重要）
+
+页面**不会自己去网上抓开奖**——「一键同步」读的是仓库里的静态文件 `data/draws.json`。
+这个文件由 GitHub Actions 每天自动更新：
+
+```
+ci/sync-draws.yml                  源文件（可评审、可版本管理）
+.github/workflows/sync-draws.yml   实际生效的位置 ← GitHub 只读这里
+每日 21:45 / 22:15 / 23:00（北京时间）抓上游 → 写回 draws.json + draws.js → 提交
+```
+
+> ⚠ **历史 bug**：这个工作流以前放在仓库根目录的 `workflows/`，而 GitHub Actions **只**认 `.github/workflows/`，
+> 所以它一次都没执行过，底库因此长期停在 2026-298。现在源文件放在 `ci/`，用一条命令安装到位：
+
+```bash
+npm run install:workflow     # 复制 ci/sync-draws.yml → .github/workflows/sync-draws.yml
+git add .github/workflows/sync-draws.yml && git commit -m "ci: enable daily draw sync" && git push
+```
+
+> 为什么需要你手动提交一次：通过自动化令牌提交 workflow 文件会被 GitHub 拒绝
+> （`refusing to allow a GitHub App to create or update workflow ... without workflows permission`）。
+> 用你自己的账号提交就没有这个限制。也可以直接在网页上新建
+> `.github/workflows/sync-draws.yml`，把 `ci/sync-draws.yml` 的内容粘进去。
+> 装好后到 Actions 页面点一次 **Sync Daily Lottery Draws → Run workflow** 验证。
+
+为什么必须在服务端抓：上游 `https://2026kj.zkclhb.com:2025/am.html` 用的是**非标准端口 2025 + 不完整证书链**，
+浏览器直连一定失败（证书 / CORS）；Node 脚本用 `rejectUnauthorized: false` 才抓得到。
+
+所以「同步不到新数据」通常是这三种情况，页面会如实告诉你属于哪一种：
+
+| 现象 | 含义 | 处理 |
+| --- | --- | --- |
+| 「仅检查」显示可追加 N 期 | **本机**落后，仓库里已经有新数据 | 点「一键同步」即可 |
+| 本机新鲜度「落后 N 期」+ 可追加 0 期 | **仓库文件**本身没更新 | 看 Actions 里的 sync-draws 是否运行成功；也可本地 `npm run sync` 后提交 |
+| 本机新鲜度「已是最新」 | 真的没有新开奖 | 无需处理 |
+| 读取失败 | 文件没部署 / 离线缓存异常 | 用「粘贴导入」兜底 |
 
 ## 运行
 
 ```bash
 npm start          # 本地静态服务（默认 3000 端口）
 npm test           # 单元测试 + 页面冒烟测试
-npm run sync       # 从远程源同步最新开奖到 data/draws.json
-npm run build:db   # 由 data/draws.json 生成 data/draws.js
+npm run sync       # 手动从上游同步最新开奖到 data/draws.json（同时生成 draws.js）
+npm run build:db   # 由 data/draws.json 重新生成 data/draws.js
+npm run install:workflow   # 把 ci/sync-draws.yml 安装到 .github/workflows/（让自动同步生效）
 ```
 
 页面冒烟测试用 jsdom 真跑一遍 `index.html + src/app.js`；没有装 jsdom 时会自动跳过（`npm i --no-save jsdom` 可启用）。
@@ -85,10 +123,11 @@ src/strategy.js            # 取历史 + 直选选号器（三区 / 波色 / 奇
 src/statistics.js          # 组合数、随机基线、公平赔率、期望回报率
 src/combinatorics.js       # 命中核对与收益计算
 src/constants.js           # 波色 / 生肖 / 玩法定义 / 默认赔率 / 构建版本号
-src/parser.js  src/sync.js # 开奖文本解析、数据源比对
+src/parser.js  src/sync.js # 开奖文本解析、数据源比对、底库新鲜度（落后几期）
 src/storage.js             # localStorage 持久化与旧数据迁移
 src/audit.js  src/periods.js  src/copy.js
 data/draws.json            # 开奖底库（1759 期）＋ data/draws.js 打包版
+ci/sync-draws.yml          # 每日自动抓取开奖的 workflow 源文件（npm run install:workflow 安装到 .github/workflows/）
 sw.js  manifest.webmanifest
 tests/*.test.mjs           # 单元测试（node:test）+ jsdom 页面冒烟 / 交互回归
 ```
