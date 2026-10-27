@@ -16,6 +16,11 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
+// 页面默认展示「下一期」，期号跟着底库走（自动同步会不断追加新的一期）
+const { default: INITIAL_DB } = await import('../data/draws.js');
+const { nextPeriodMeta } = await import('../src/periods.js');
+const EXPECTED_NEXT = nextPeriodMeta(INITIAL_DB.draws[0]);
+
 let JSDOM = null;
 try {
   ({ JSDOM } = await import('jsdom'));
@@ -53,7 +58,10 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     }
 
     const text = (id) => window.document.getElementById(id)?.textContent?.trim() || '';
-    assert.ok(text('heroPeriod').includes('第299期'), `头部期号异常：${text('heroPeriod')}`);
+    assert.ok(
+      text('heroPeriod').includes(`第${EXPECTED_NEXT.period}期`),
+      `头部期号异常：${text('heroPeriod')}（底库最新 ${INITIAL_DB.draws[0].id}，应展示下一期 ${EXPECTED_NEXT.period}）`
+    );
     assert.equal(window.document.querySelectorAll('#fiveGrid .five-card').length, 5, '5 注卡片没渲染出来');
     assert.ok(text('heroMeta').includes('覆盖'), '应显示 5 组覆盖的号码数');
     assert.ok(text('heroMeta').includes('15 注'), '应显示本期共 15 注');
