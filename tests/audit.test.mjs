@@ -50,9 +50,12 @@ test('真实底库：体检能抓出那唯一一行坏数据，且其余期次�
 });
 
 test('体检摘要必须同时说明「可统计期数」和「不猜测补全」', () => {
-  const text = formatAuditSummary(auditDraws(ALL));
-  assert.ok(text.includes('1759'), '应给出总期数');
-  assert.ok(text.includes('1758'), '应给出可统计期数');
+  const report = auditDraws(ALL);
+  const text = formatAuditSummary(report);
+  // 不写死期数：底库每天由自动同步追加，摘要里的数字必须来自实际数据
+  assert.ok(text.includes(String(report.total)), `应给出总期数 ${report.total}`);
+  assert.ok(text.includes(String(report.usable)), `应给出可统计期数 ${report.usable}`);
+  assert.equal(report.usable, report.total - 1, '只有 2022-132 这一行不可用');
   assert.ok(text.includes('2022-132'), '应指出具体坏行');
   assert.ok(text.includes('不会被猜测补全'));
 });
