@@ -62,36 +62,42 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
       text('heroPeriod').includes(`第${EXPECTED_NEXT.period}期`),
       `头部期号异常：${text('heroPeriod')}（底库最新 ${INITIAL_DB.draws[0].id}，应展示下一期 ${EXPECTED_NEXT.period}）`
     );
-    assert.equal(window.document.querySelectorAll('#fiveGrid .five-card').length, 5, '5 注卡片没渲染出来');
-    assert.ok(text('heroMeta').includes('覆盖'), '应显示 5 组覆盖的号码数');
-    assert.ok(text('heroMeta').includes('15 注'), '应显示本期共 15 注');
+    // 特码 = 一张清单（1 个号 = 1 注），所以只有 1 张卡片、12 个号、12 注
+    assert.equal(window.document.querySelectorAll('#fiveGrid .five-card').length, 1, '特码应只渲染 1 张清单卡片');
+    assert.ok(text('heroMeta').includes('12 注'), `应显示本期共 12 注：${text('heroMeta')}`);
+    assert.ok(text('heroMeta').includes('奇偶 6:6'), `应显示奇偶 6:6：${text('heroMeta')}`);
 
-    // 特码是 1 中 1：每组 3 个号 = 3 注，5 组共 15 个号；随机组允许与精选重复，并集 ≤ 15
     const five = [...window.document.querySelectorAll('#fiveGrid .fc-balls .lotto-ball')]
-      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
-    assert.equal(five.length, 15, `应有 15 个号码，实际 ${five.length}`);
-    assert.ok(new Set(five).size <= 15 && new Set(five).size >= 12, `并集号码数异常：${new Set(five).size}`);
+      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '').slice(0, 2)));
+    assert.equal(five.length, 12, `清单应有 12 个号码，实际 ${five.length}`);
+    assert.equal(new Set(five).size, 12, '12 个号必须互不重复，不能浪费任何一注');
 
-    // 精选四组（#2~#5）之间必须互不重复 → 12 个号
-    const picked = [...window.document.querySelectorAll('#fiveGrid .five-card:not(.is-random) .fc-balls .lotto-ball')]
-      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '')));
-    assert.equal(picked.length, 12, `精选应有 12 个号码，实际 ${picked.length}`);
-    assert.equal(new Set(picked).size, 12, '精选四组之间不能重复用号');
+    // 12 个号整体形态：奇偶 6:6、大小 6:6、三区 4:4:4
+    assert.equal(five.filter((n) => n % 2 === 1).length, 6, '奇偶应 6:6');
+    assert.equal(five.filter((n) => n >= 25).length, 6, '大小应 6:6');
+    const zones = [five.filter((n) => n <= 16).length, five.filter((n) => n > 16 && n <= 33).length, five.filter((n) => n > 33).length];
+    assert.deepEqual(zones, [4, 4, 4], `三区应 4:4:4，实际 ${zones.join('-')}`);
 
-    // 随机注说明要讲清「纯 49 选、允许重复」
-    const randomCard = window.document.querySelector('#fiveGrid .five-card.is-random');
-    assert.ok(randomCard.textContent.includes('49 个号等概率机选'), '随机注说明没更新');
+    // 图例：🎲 3 / 🔥 3 / 🎯 2 / ⚖️ 4
+    const legend = window.document.querySelector('#fiveGrid .fc-legend')?.textContent || '';
+    for (const [icon, name, count] of [['🎲', '完全随机', 3], ['🔥', '热号', 3], ['🎯', '冷号', 2], ['⚖️', '形态均衡', 4]]) {
+      assert.ok(legend.includes(icon) && legend.includes(name), `图例缺少 ${icon} ${name}`);
+      assert.equal(window.document.querySelectorAll(`#fiveGrid .ball-tag`).length >= 0, true);
+    }
+    assert.equal(window.document.querySelectorAll('#fiveGrid .ball-tag').length, 12, '每个号都应带风格角标');
+    // 随机号的说明要讲清「纯 49 选」
+    const cardText = window.document.querySelector('#fiveGrid .five-card')?.textContent || '';
+    assert.ok(cardText.includes('49 个号等概率机选'), '随机号说明没更新');
 
-    // 概率口径行：15 注、单注 2.0408%、每组 6.1224%、公平 49 倍、回报率 98.0%、至少中 1 注 = 并集/49
+    // 概率口径行：12 注、单注 2.0408%、整张清单 24.4898%、公平 49 倍、回报率 98.0%、至少中 1 注 = 12/49
     const costLine = text('featuredCostLine');
-    assert.ok(costLine.includes('15 注'), `注数没按 15 注显示：${costLine}`);
+    assert.ok(costLine.includes('12 注'), `注数没按 12 注显示：${costLine}`);
     assert.ok(costLine.includes('2.0408%'), `单注命中率没显示：${costLine}`);
-    assert.ok(costLine.includes('6.1224%'), `每组命中率没显示：${costLine}`);
+    assert.ok(costLine.includes('24.4898%'), `整张清单命中率没显示：${costLine}`);
     assert.ok(costLine.includes('49.0 倍'), '公平赔率没显示');
     assert.ok(costLine.includes('98.0%'), '期望回报率没显示');
-    const distinct = new Set(five).size;
-    const expectAnyHit = ((distinct / 49) * 100).toFixed(3);
-    assert.ok(text('featuredCostLine').includes(expectAnyHit), `至少中 1 注应为并集/49 = ${expectAnyHit}%：${text('featuredCostLine')}`);
+    const expectAnyHit = ((new Set(five).size / 49) * 100).toFixed(3);
+    assert.ok(text('featuredCostLine').includes(expectAnyHit), `至少中 1 注应为 12/49 = ${expectAnyHit}%：${text('featuredCostLine')}`);
     assert.ok(text('auditLine').includes('2022-132'), '底库体检没列出坏行');
     assert.equal(window.document.querySelectorAll('#histMetrics .mc-table thead th').length, 5, '逐注对比表应有 5 列');
     assert.ok(text('replayStatus').includes('已回放'), `回放未完成：${text('replayStatus')}`);

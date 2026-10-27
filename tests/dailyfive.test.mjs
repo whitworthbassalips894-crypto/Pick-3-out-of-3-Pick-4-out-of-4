@@ -4,9 +4,13 @@
  *   #1 🎲 随机基线（纯随机对照，可重摇） + #2~#5 精选
  *
  * 三种玩法（playMode）：
- *   special 特码：每注 5 个号，命中 = 开奖的最后一个号码（特码）落在这 5 个号里
+ *   special 特码：**一张 12 号清单**（1 个号 = 1 注，共 12 注），
+ *                命中 = 开奖的最后一个号码（特码）落在清单里
  *   pick3   三中三：每注 3 个号，全部落在 6 个正码里
  *   pick4   四中四：每注 4 个号，全部落在 6 个正码里
+ *
+ * 特码为什么是清单而不是 5 组：分组是「一组 = 一注组合」的形态（三中三 / 四中四），
+ * 特码 1 个号就已经是一注，分组对它没有数学含义，只是从三中三继承下来的壳。
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,10 +37,12 @@ const pick = (id) => ALL.find((d) => d.id === id);
 
 const TARGET = { year: 2026, periodNum: 297, date: '2026-10-24' };
 const MODES = [
-  { mode: 'special', size: 3, odds: 48, bets: 3 },
+  { mode: 'special', size: 12, odds: 48, bets: 12 },
   { mode: 'pick3', size: 3, odds: 650 },
   { mode: 'pick4', size: 4, odds: 7500 }
 ];
+/** 走「5 组」骨架的玩法（特码在 r17 起改成一张 12 号清单） */
+const GROUP_MODES = MODES.filter((m) => m.mode !== 'special');
 
 test('目录：1 注纯随机 + 4 注精选，编号 #1~#5', () => {
   assert.equal(DAILY_FIVE_CATALOG.length, 5);
@@ -51,8 +57,24 @@ test('直选支持 3 码（三中三）/ 4 码（四中四）；特码走 1 中 
   assert.deepEqual(DIRECT_SIZES, [3, 4]);
 });
 
-test('generateDailyFive：三种玩法每注号码个数正确、合法且不重复', () => {
-  for (const { mode, size } of MODES) {
+test('generateDailyFive：直选 5 组 / 特码 1 张清单，号码个数正确、合法且不重复', () => {
+  // 特码：1 张清单、12 个号、12 注
+  const special = generateDailyFive(ALL, TARGET, { mode: 'special' });
+  assert.equal(special.mode, 'special');
+  assert.equal(special.size, 12);
+  assert.equal(special.layout, 'list');
+  assert.equal(special.five.length, 1, '特码只应有 1 张清单');
+  const list = special.five[0];
+  assert.equal(list.numbers.length, 12);
+  assert.equal(new Set(list.numbers).size, 12, '12 个号必须互不重复（不浪费任何一注）');
+  assert.ok(list.numbers.every((n) => Number.isInteger(n) && n >= 1 && n <= 49));
+  assert.equal(list.shape.odd + list.shape.even, 12);
+  assert.equal(list.shape.zone1 + list.shape.zone2 + list.shape.zone3, 12);
+  assert.equal(list.shape.red + list.shape.blue + list.shape.green, 12);
+  assert.equal(list.shape.hot + list.shape.warm + list.shape.cold, 12);
+  assert.deepEqual(list.breakdown.map((b) => b.count), [3, 3, 2, 4], '🎲3 / 🔥3 / 🎯2 / ⚖️4');
+
+  for (const { mode, size } of GROUP_MODES) {
     const plan = generateDailyFive(ALL, TARGET, { mode });
     assert.equal(plan.mode, mode);
     assert.equal(plan.size, size);
@@ -72,46 +94,67 @@ test('generateDailyFive：三种玩法每注号码个数正确、合法且不重
   }
 });
 
-test('默认玩法 = 特码（1 中 1：每组 3 个号 = 3 注）', () => {
+test('默认玩法 = 特码（1 中 1：一张 12 号清单 = 12 注）', () => {
   const plan = generateDailyFive(ALL, TARGET);
   assert.equal(plan.mode, 'special');
-  assert.equal(plan.size, 3);
-  assert.equal(plan.coverage.betsPerOption, 3, '3 个号 = 3 注');
-  assert.equal(plan.coverage.totalBets, 15, '5 组 × 3 注 = 15 注');
-  assert.ok(plan.five.every((e) => e.numbers.length === 3));
+  assert.equal(plan.size, 12);
+  assert.equal(plan.coverage.betsPerOption, 12, '1 个号 = 1 注 → 12 个号 = 12 注');
+  assert.equal(plan.coverage.totalBets, 12);
+  assert.equal(plan.coverage.distinct, 12);
+  assert.equal(plan.coverage.overlap, 0, '随机号先选、精选避开它 → 不重复');
+  assert.ok(plan.five.every((e) => e.numbers.length === 12));
   assert.ok(plan.five.every((e) => e.numbers.every((n) => Number.isInteger(n) && n >= 1 && n <= 49)));
 });
 
-test('5 注固定为：完全随机 / 热号 / 冷号 / 形态均衡 / 补位覆盖（三种玩法一致）', () => {
-  for (const mode of ['special', 'pick3', 'pick4']) {
+test('直选 5 注固定为：完全随机 / 热号 / 冷号 / 形态均衡 / 补位覆盖；特码是 1 张清单', () => {
+  for (const mode of ['pick3', 'pick4']) {
     const plan = generateDailyFive(ALL, TARGET, { mode });
     assert.deepEqual(plan.five.map((e) => e.id), ['random', 'hot', 'cold', 'shape', 'cover']);
     assert.deepEqual(plan.five.map((e) => e.code), ['#1', '#2', '#3', '#4', '#5']);
     assert.deepEqual(plan.five.map((e) => e.name), ['完全随机', '热号', '冷号', '形态均衡', '补位覆盖']);
     assert.equal(plan.five.filter((e) => e.random).length, 1);
   }
-  // 特码玩法的说明换成「特码口径」
+  // 特码：只有一张清单，四个风格都在清单内部（🎲3 / 🔥3 / 🎯2 / ⚖️4）
   const special = generateDailyFive(ALL, TARGET, { mode: 'special' });
-  assert.ok(special.five[1].rationale.includes('特码'), '特码玩法的热号说明应基于特码历史');
+  assert.equal(special.five.length, 1);
+  assert.equal(special.five[0].id, 'specialList');
+  assert.deepEqual(special.five[0].breakdown.map((b) => b.id), ['random', 'hot', 'cold', 'balance']);
+  assert.ok(special.five[0].rationale.includes('特码'), '特码清单的说明要用特码口径');
   const pick3 = generateDailyFive(ALL, TARGET, { mode: 'pick3' });
   assert.ok(!pick3.five[1].rationale.includes('特码'), '正码玩法不该出现特码口径的说明');
 });
 
-test('特码的 4 组精选各 3 个号，三区尽量铺开（不挤在同一区）', () => {
-  for (const target of ALL.slice(1, 41).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
+test('特码 12 号整体形态：奇偶 6:6、大小 6:6、三区 4:4:4（不再是一堆中位号）', () => {
+  for (const target of ALL.slice(1, 81).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
     const plan = generateDailyFive(ALL, target, { mode: 'special' });
-    // 精选 4 组共 12 个号，三区都该有号
-    const zones = plan.five.slice(1).flatMap((e) => e.numbers)
-      .map((n) => (n <= 16 ? 1 : n <= 33 ? 2 : 3));
-    assert.equal(zones.length, 12);
-    assert.equal(new Set(zones).size, 3, `${target.periodNum} 期精选 12 个号没有铺满三区：${zones.join('-')}`);
-    for (const e of plan.five) assert.equal(e.numbers.length, 3);
+    const nums = plan.five[0].numbers;
+    assert.equal(nums.length, 12);
+    assert.equal(nums.filter((n) => n % 2 === 1).length, 6, `${target.periodNum} 期奇偶不是 6:6`);
+    assert.equal(nums.filter((n) => n >= 25).length, 6, `${target.periodNum} 期大小不是 6:6`);
+    assert.equal(nums.filter((n) => n <= 16).length, 4, `${target.periodNum} 期一区不是 4 个`);
+    assert.equal(nums.filter((n) => n > 16 && n <= 33).length, 4, `${target.periodNum} 期二区不是 4 个`);
+    assert.equal(nums.filter((n) => n > 33).length, 4, `${target.periodNum} 期三区不是 4 个`);
   }
+});
+
+test('回归：特码清单不再「每期都差不多」（旧版 300 期里 24% 是同一组 16·25·35）', () => {
+  const seen = new Set();
+  for (const d of ALL.slice(1, 201)) {
+    const plan = generateDailyFive(ALL, { year: d.year, periodNum: d.periodNum, date: d.date }, { mode: 'special' });
+    seen.add(plan.five[0].numbers.join(','));
+  }
+  assert.equal(seen.size, 200, `200 期应有 200 种不同清单，实际 ${seen.size} 种`);
 });
 
 test('4 注精选之间互不重叠；随机注不受限制（可以有重叠）', () => {
   for (const target of ALL.slice(1, 41).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
-    for (const mode of ['special', 'pick3', 'pick4']) {
+    // 特码：整张清单 12 个号互不重复
+    const listPlan = generateDailyFive(ALL, target, { mode: 'special' });
+    const allList = listPlan.five.flatMap((e) => e.numbers);
+    assert.equal(new Set(allList).size, allList.length, '特码清单出现了重复号码');
+    assert.equal(new Set(allList).size, 12);
+
+    for (const mode of ['pick3', 'pick4']) {
       const plan = generateDailyFive(ALL, target, { mode });
       const size = plan.size;
 
@@ -141,30 +184,32 @@ test('4 注精选之间互不重叠；随机注不受限制（可以有重叠）
   }
 });
 
-test('随机注是纯 49 选 size：不排除任何号码，允许与精选重复', () => {
-  // 抽查 60 期：随机注的号码应当能落在「精选已用号码」上（旧实现是绝不重叠）
-  let overlaps = 0;
-  let total = 0;
-  for (const target of ALL.slice(1, 61).map((d) => ({ year: d.year, periodNum: d.periodNum, date: d.date }))) {
-    const plan = generateDailyFive(ALL, target, { mode: 'special' });
-    const picked = new Set(plan.five.slice(1).flatMap((e) => e.numbers));
-    for (const n of plan.five[0].numbers) {
-      total++;
-      if (picked.has(n)) overlaps++;
-    }
+test('特码清单里的 🎲 随机号：纯 49 选 3，覆盖均匀，且重摇只动这 3 个号', () => {
+  // 统计 200 期里每个号被随机抽中的次数，应当接近 200×3/49 ≈ 12.2
+  const hits = new Array(50).fill(0);
+  for (const d of ALL.slice(1, 201)) {
+    const plan = generateDailyFive(ALL, { year: d.year, periodNum: d.periodNum, date: d.date }, { mode: 'special' });
+    const randoms = (plan.five[0].breakdown || []).find((b) => b.id === 'random').numbers;
+    assert.equal(randoms.length, 3, '随机号必须正好 3 个');
+    for (const n of randoms) hits[n]++;
   }
-  assert.ok(overlaps > 0, '随机组从不与精选重叠，说明随机性被限制了');
-  // 特码精选四组共 12 个号 → 随机单号撞上精选的概率 ≈ 12/49 ≈ 0.245
-  const rate = overlaps / total;
-  assert.ok(rate > 0.15 && rate < 0.35, `随机组撞号率异常：${rate.toFixed(3)}（理论≈0.245）`);
+  let used = 0;
+  let sum = 0;
+  for (let n = 1; n <= 49; n++) {
+    if (hits[n] > 0) used++;
+    sum += hits[n];
+  }
+  assert.equal(used, 49, `49 个号都应该被随机抽到过，实际 ${used} 个`);
+  assert.equal(sum, 200 * 3);
+  const avg = sum / 49;
+  assert.ok(avg > 10 && avg < 15, `随机均值异常：${avg.toFixed(2)}`);
 
-  // 重摇只影响 #1，精选四注不动
+  // 重摇只影响 🎲 三个号，精选 9 个号不动
   const base = generateDailyFive(ALL, TARGET, { mode: 'special', randomSalt: 0 });
   const rerolled = generateDailyFive(ALL, TARGET, { mode: 'special', randomSalt: 3 });
+  const rand = (p) => (p.five[0].breakdown.find((b) => b.id === 'random') || {}).numbers || [];
+  assert.notDeepEqual(rand(base), rand(rerolled), '重摇必须换掉随机号');
   assert.notDeepEqual(base.five[0].numbers, rerolled.five[0].numbers);
-  for (let i = 1; i < 5; i++) {
-    assert.deepEqual(base.five[i].numbers, rerolled.five[i].numbers, '重摇不该影响精选');
-  }
 });
 
 test('coverage：特码 = 并集/49，直选 = 容斥精确值（≤ 5 × 单注，且 ≥ 单注）', () => {
@@ -177,9 +222,9 @@ test('coverage：特码 = 并集/49，直选 = 容斥精确值（≤ 5 × 单注
 
       if (mode === 'special') {
         assert.ok(Math.abs(cov.perBet - 1 / 49) < 1e-15, '特码：单注（1 个号）命中 = 1/49');
-        assert.ok(Math.abs(cov.perTicket - 3 / 49) < 1e-15, '特码：每组 3 个号至少中 1 注 = 3/49');
-        assert.equal(cov.betsPerOption, 3);
-        assert.equal(cov.totalBets, 15);
+        assert.ok(Math.abs(cov.perTicket - 12 / 49) < 1e-15, '特码：整张清单 12 个号至少中 1 注 = 12/49');
+        assert.equal(cov.betsPerOption, 12);
+        assert.equal(cov.totalBets, 12);
         assert.ok(Math.abs(cov.anyHit - cov.distinct / 49) < 1e-15, '特码：并集号码数 / 49');
       } else {
         const single = mode === 'pick3' ? 20 / 18424 : 15 / 211876;
@@ -228,22 +273,18 @@ test('buildDailyFiveRecords 逐期回放：直选命中 = 号码全部落在前 
   }
 });
 
-test('buildDailyFiveRecords 特码口径：命中 = 开奖特码落在这 5 个号里', () => {
+test('buildDailyFiveRecords 特码口径：命中 = 开奖特码落在这张清单里', () => {
   const target = pick('2026-287'); // 特码 08
   const rec = buildDailyFiveRecords(ALL, [target], { mode: 'special', oddsSpecial: 48 })[0];
-  assert.equal(rec.five.length, 5);
-  let wins = 0;
-  for (const e of rec.five) {
-    const covers = e.numbers.includes(8);
-    if (covers) wins++;
-    assert.equal(e.isWin, covers);
-    assert.equal(e.hitCount, covers ? 1 : 0);
-    assert.equal(e.payout, covers ? 10 * 48 : 0);
-    // 正码命中个数不参与特码判定
-    assert.ok(e.matchedNormalCount <= 1);
-  }
-  // 中奖注数 = 覆盖了特码 08 的注数（随机注可能撞号，所以允许 > 1，但要与号码一致）
-  assert.equal(wins, rec.five.filter((e) => e.numbers.includes(8)).length);
+  assert.equal(rec.five.length, 1, '特码只有一张清单');
+  const e = rec.five[0];
+  assert.equal(e.numbers.length, 12);
+  const covers = e.numbers.includes(8);
+  assert.equal(e.isWin, covers);
+  assert.equal(e.hitCount, covers ? 1 : 0);
+  assert.equal(e.payout, covers ? 10 * 48 : 0, '每中 1 注返 本金 × 特码赔率');
+  // 正码命中个数不参与特码判定
+  assert.ok(e.matchedNormalCount <= 1);
 });
 
 test('无未来函数：把未来开奖全部改掉，T 期推荐不变', () => {
@@ -278,14 +319,15 @@ test('无未来函数：只保留 T 期之前的数据，T 期推荐不变', () 
   }
 });
 
-test('summarizeDailyFive：成本按注数算（特码每组 3 注），返奖 = 中奖注数 × 本金 × 赔率', () => {
+test('summarizeDailyFive：成本按注数算（特码 1 张清单 12 注），返奖 = 中奖注数 × 本金 × 赔率', () => {
   const targets = ALL.slice(0, 60);
   for (const { mode, size, odds, bets = 1 } of MODES) {
     const records = buildDailyFiveRecords(ALL, targets, { stake: 10, odds3: 650, odds4: 7500, oddsSpecial: 48, mode });
     const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, oddsSpecial: 48, mode });
 
     assert.equal(summary.periods, records.length);
-    assert.equal(summary.catalog.length, 5);
+    // 特码只有一张清单（1 行汇总），直选 5 组（5 行）
+    assert.equal(summary.catalog.length, mode === 'special' ? 1 : 5);
     assert.equal(summary.size, size);
     assert.equal(summary.mode, mode);
     assert.equal(summary.odds, odds);
@@ -293,7 +335,7 @@ test('summarizeDailyFive：成本按注数算（特码每组 3 注），返奖 =
     assert.equal(summary.betsPerOption, bets);
     for (const agg of summary.catalog) {
       assert.equal(agg.periods, records.length);
-      // 特码每组 3 注 → 成本 = 期数 × 3 × 本金；直选每组 1 注
+      // 特码每期 12 注 → 成本 = 期数 × 12 × 本金；直选每组 1 注
       assert.equal(agg.cost, records.length * bets * 10);
       assert.equal(agg.bets, records.length * bets);
       let winPeriods = 0;
@@ -316,8 +358,8 @@ test('summarizeDailyFive：成本按注数算（特码每组 3 注），返奖 =
   }
 });
 
-test('随机期望：特码每组 3/49 ≈ 0.0612 注，三中三 18/49 ≈ 0.367，四中四 24/49 ≈ 0.490', () => {
-  assert.ok(Math.abs(randomExpectedHits('special') - 3 / 49) < 1e-12);
+test('随机期望：特码每期 12/49 ≈ 0.245 注，三中三 18/49 ≈ 0.367，四中四 24/49 ≈ 0.490', () => {
+  assert.ok(Math.abs(randomExpectedHits('special') - 12 / 49) < 1e-12);
   assert.ok(Math.abs(randomExpectedHits('pick3') - 18 / 49) < 1e-12);
   assert.ok(Math.abs(randomExpectedHits('pick4') - 24 / 49) < 1e-12);
   assert.ok(Math.abs(RANDOM_EXPECTED_HITS - 18 / 49) < 1e-12);
@@ -337,12 +379,17 @@ test('buildCustomRecords：自选直选每期都用同一组号码，且不偷�
   // 号码个数不足时不生成任何记录
   assert.equal(buildCustomRecords(ALL, targets, { customNumbers: [1, 2], mode: 'pick3' }).length, 0);
   assert.equal(buildCustomRecords(ALL, targets, { customNumbers: [1, 2, 3], mode: 'pick4' }).length, 0);
-  // 特码玩法：1 中 1，每组 3 个号 = 3 注
+  // 特码玩法：1 中 1（1 个号 = 1 注），自选允许 1 ~ 12 个号
   const records3s = buildCustomRecords(ALL, targets, { customNumbers: [6, 26, 29], stake: 10, mode: 'special' });
   assert.equal(records3s.length, targets.length);
   assert.deepEqual(records3s[0].five[0].numbers, [6, 26, 29]);
-  assert.equal(records3s[0].size, 3);
-  assert.equal(buildCustomRecords(ALL, targets, { customNumbers: [1, 2], mode: 'special' }).length, 0);
+  assert.equal(records3s[0].size, 12);
+  assert.equal(buildCustomRecords(ALL, targets, { customNumbers: [8], mode: 'special' }).length, targets.length, '单个号也能自选');
+  assert.equal(
+    buildCustomRecords(ALL, targets, { customNumbers: Array.from({ length: 13 }, (_, i) => i + 1), mode: 'special' }).length,
+    0,
+    '超过 12 个号不生成记录'
+  );
 });
 
 /* -------------------------------------------------- 遗漏 bug 回归（2026-10-26） */

@@ -172,6 +172,12 @@ b { font-weight: 800; }
 .lotto-ball.ball-hit { outline: 3px solid var(--gold); outline-offset: 2px; box-shadow: 0 0 14px rgba(212, 167, 44, 0.65); }
 .lotto-ball.ball-special-dim { border-style: dashed; opacity: 0.9; }
 .ball-meta { font-size: 0.68rem; color: var(--muted); font-weight: 600; line-height: 1.1; }
+/* 特码清单：号码球右上角的风格角标（🎲 随机 / 🔥 热 / 🎯 冷 / ⚖️ 均衡） */
+.ball-tag {
+  position: absolute; top: -5px; right: -5px; font-size: 0.68rem; line-height: 1;
+  background: #fff; border-radius: 999px; padding: 1px 2px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.28);
+}
 .ball-plus { font-size: 1.05rem; font-weight: 800; color: var(--gold); align-self: center; }
 .pin-badge {
   position: absolute; top: -6px; right: -6px; background: #f97316; color: #fff;
@@ -269,6 +275,17 @@ b { font-weight: 800; }
 }
 .fc-shape span { background: #f1f5f9; border-radius: 5px; padding: 2px 7px; }
 .fc-hit { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+/* 特码清单：整体布局更松散，图例单独一行 */
+.five-card.is-list .fc-balls { gap: 10px; }
+.fc-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 2px;
+  padding-top: 10px; border-top: 1px dashed var(--line);
+  font-size: 0.74rem; color: var(--muted);
+}
+.legend-item { display: inline-flex; align-items: baseline; gap: 5px; }
+.legend-item b { color: var(--ink); font-weight: 800; letter-spacing: 0.5px; }
+.legend-item.is-random b { color: var(--muted); }
+.legend-note { color: var(--faint); margin-left: auto; }
 .fc-win { flex-basis: 100%; font-size: 0.72rem; color: var(--gold-deep); font-weight: 700; line-height: 1.6; }
 .fc-sub-title { font-size: 0.74rem; font-weight: 800; }
 .fc-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: auto; }

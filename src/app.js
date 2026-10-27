@@ -118,9 +118,17 @@ function targetBets(mode = playMode()) {
   return betsPerTicket(resolveMode(mode));
 }
 
-/** 本期总注数（5 组） */
-function totalBets(mode = playMode()) {
-  return targetBets(mode) * 5;
+/**
+ * 本期总注数
+ *
+ * 特码 = 一张清单（1 个号 = 1 注，清单有几个号就是几注）；
+ * 三中三 / 四中四 = 5 组 × 每组 1 注。
+ *
+ * @param {string} [mode]
+ * @param {number} [groups] 组数（特码传 1，直选传 5）
+ */
+function totalBets(mode = playMode(), groups = 5) {
+  return targetBets(mode) * Math.max(1, Math.trunc(Number(groups) || 5));
 }
 
 /** 玩法简称（特码 / 选三 / 选四） */
@@ -202,7 +210,9 @@ function ballHtml(num, opts = {}) {
   const zodiac = opts.zodiac === false ? '' : getZodiacForNumber(n, opts.date || '2026-10-24');
   const pin = opts.pinned ? '<span class="pin-badge">胆</span>' : '';
   const attrs = opts.attrs || '';
-  return `<div class="lotto-ball-wrap" ${attrs}><div class="lotto-ball ${color}${size}${hit}${dim}${cons}">${pad2(n)}${pin}</div>${zodiac ? `<span class="ball-meta">${zodiac}</span>` : ''}</div>`;
+  // 特码清单：每个号带一个小角标，标明它属于哪种选号风格（🎲 / 🔥 / 🎯 / ⚖️）
+  const mark = opts.mark ? `<span class="ball-tag" title="${escapeHtml(opts.markLabel || '')}">${opts.mark}</span>` : '';
+  return `<div class="lotto-ball-wrap" ${attrs}><div class="lotto-ball ${color}${size}${hit}${dim}${cons}">${pad2(n)}${pin}${mark}</div>${zodiac ? `<span class="ball-meta">${zodiac}</span>` : ''}</div>`;
 }
 
 function miniBallHtml(num, opts = {}) {
@@ -418,10 +428,25 @@ function populatePeriodSelect() {
 
 /* ==================== 渲染：① 今日推荐（每日 5 组） ==================== */
 
+/** 特码清单里各风格的小图标 / 名称（与 src/dailyfive.js 的 SPECIAL_LIST_STYLES 对应） */
+const STYLE_ICON = { random: '🎲', hot: '🔥', cold: '🎯', balance: '⚖️' };
+const STYLE_LABEL = { random: '完全随机', hot: '热号', cold: '冷号', balance: '形态均衡' };
+
+/** 尾数分布 → "0×2 1×1 …"（只列出现过的尾数） */
+function tailText(nums) {
+  const count = new Array(10).fill(0);
+  for (const n of nums) count[n % 10]++;
+  return count
+    .map((c, t) => (c ? `${t}×${c}` : ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
 function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = playMode()) {
   const t = ctx.target;
   const size = e.numbers.length;
   const isSpecial = mode === 'special';
+  const isList = isSpecial && (e.layout === 'list' || e.id === 'specialList');
   const bets = targetBets(mode);
   // 直选：命中 = 这一注的号码全部落在 6 个正码里
   // 特码（1 中 1）：命中 = 开奖的最后一个号码正好等于这 1 个号
@@ -431,12 +456,17 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
       ? (ctx.draw.special != null && e.numbers.includes(ctx.draw.special) ? [ctx.draw.special] : [])
       : e.numbers.filter((x) => drawNormals.includes(x)))
     : null;
-  const balls = e.numbers.map((n) => ballHtml(n, {
+  // 特码清单：每个号带风格角标
+  const styleMap = e.styles || {};
+  const ballOpts = (n) => ({
     size: 'lg',
     date: t.date,
     hitSet,
-    consensus: consensusSet.has(n)
-  })).join('');
+    consensus: consensusSet.has(n),
+    mark: isList ? (STYLE_ICON[styleMap[n]] || '') : '',
+    markLabel: isList ? (STYLE_LABEL[styleMap[n]] || '') : ''
+  });
+  const balls = e.numbers.map((n) => ballHtml(n, ballOpts(n))).join('');
   const shape = e.shape || { odd: 0, even: 0, big: 0, small: 0, zone1: 0, zone2: 0, zone3: 0, red: 0, blue: 0, green: 0, sum: 0 };
 
   let hitHtml = '';
@@ -455,16 +485,25 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
       </div>`;
   }
 
+  // 特码清单的图例：每种风格几个号（号码本身已经带角标，这里只报数量，避免重复罗列）
+  const legendHtml = isList && Array.isArray(e.breakdown)
+    ? `<div class="fc-legend">${e.breakdown.map((b) => (
+      `<span class="legend-item${b.id === 'random' ? ' is-random' : ''}">`
+      + `${b.icon} ${escapeHtml(b.name)} <b>${b.count}</b></span>`
+    )).join('')}
+      <span class="legend-note">每个号都是一注；🎲 为纯随机对照</span></div>`
+    : '';
+
   return `
-    <article class="five-card${e.random ? ' is-random' : ''}" data-five="${escapeHtml(e.id)}">
+    <article class="five-card${e.random ? ' is-random' : ''}${isList ? ' is-list' : ''}" data-five="${escapeHtml(e.id)}">
       <header class="fc-head">
-        <span class="fc-idx">第 ${index} 组</span>
+        <span class="fc-idx">${isList ? '本期清单' : `第 ${index} 组`}</span>
         <span class="fc-icon">${e.icon}</span>
         <span class="fc-name">${escapeHtml(e.name)}</span>
-        ${e.random ? '<span class="tag tag-muted">随机对照</span>' : '<span class="tag tag-gold">精选</span>'}
+        ${isList ? '' : (e.random ? '<span class="tag tag-muted">随机对照</span>' : '<span class="tag tag-gold">精选</span>')}
         ${bets > 1 ? `<span class="tag tag-muted">${bets} 注</span>` : ''}
         <span class="fc-actions">
-          <button type="button" class="btn btn-sm" data-copy-five="${escapeHtml(e.id)}">复制本组</button>
+          <button type="button" class="btn btn-sm" data-copy-five="${escapeHtml(e.id)}">${isList ? '复制清单' : '复制本组'}</button>
         </span>
         <span class="fc-rationale">${escapeHtml(e.rationale || '')}</span>
       </header>
@@ -475,8 +514,10 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
           <span>大小 ${shape.big}:${shape.small}</span>
           <span>三区 ${shape.zone1}-${shape.zone2}-${shape.zone3}</span>
           <span>和值 ${shape.sum}</span>
+          ${isList ? `<span>尾数 ${tailText(e.numbers)}</span>` : ''}
         </div>
       </div>
+      ${legendHtml}
       <div class="fc-foot">${hitHtml}</div>
     </article>`;
 }
@@ -492,13 +533,14 @@ function renderToday() {
   const odds = currentOdds(mode);
   const baseline = directBaseline(mode);
   const bets = targetBets(mode);
-  const betsTotal = totalBets(mode);
+  const betsTotal = totalBets(mode, isSpecial ? 1 : 5);
   const cov = plan.coverage || {
-    distinct: size * 5,
+    distinct: size * plan.five.length,
     perTicket: baseline.hitProbPerTicket ?? baseline.hitProb,
     perBet: baseline.hitProb,
     anyHit: 0
   };
+  const groupCount = plan.five.length;
 
   // 玩法切换按钮的选中态
   document.querySelectorAll('#modeSwitch .seg-btn').forEach((b) => {
@@ -513,9 +555,19 @@ function renderToday() {
   }
   const heroMeta = $('heroMeta');
   if (heroMeta) {
-    heroMeta.textContent = cov.overlap > 0
-      ? `5 组合计覆盖 ${cov.distinct} 个号 · 共 ${betsTotal} 注（随机组与精选重复 ${cov.overlap} 个）`
-      : `5 组合计覆盖 ${cov.distinct} 个号 · 共 ${betsTotal} 注`;
+    if (isSpecial) {
+      const list = plan.five[0] || {};
+      const st = list.shape || {};
+      const randomN = (list.breakdown || []).find((b) => b.id === 'random');
+      heroMeta.textContent = `本机清单 ${betsTotal} 注：` +
+        `奇偶 ${st.odd ?? 0}:${st.even ?? 0} · 大小 ${st.big ?? 0}:${st.small ?? 0} · ` +
+        `三区 ${st.zone1 ?? 0}-${st.zone2 ?? 0}-${st.zone3 ?? 0}` +
+        (randomN && randomN.numbers.length ? ` · 其中 🎲 ${randomN.numbers.length} 个为纯随机对照` : '');
+    } else {
+      heroMeta.textContent = cov.overlap > 0
+        ? `${groupCount} 组合计覆盖 ${cov.distinct} 个号 · 共 ${betsTotal} 注（随机组与精选重复 ${cov.overlap} 个）`
+        : `${groupCount} 组合计覆盖 ${cov.distinct} 个号 · 共 ${betsTotal} 注`;
+    }
   }
   const resetBtn = $('btnResetRandom');
   if (resetBtn) resetBtn.disabled = state.randomSalt === 0;
@@ -536,7 +588,7 @@ function renderToday() {
         return { e, d: ev.details[0] || { isWin: false, hitCount: 0, hitNums: [], payout: 0 } };
       });
       const wins = perFive.reduce((a, p) => a + (isSpecial ? p.d.hitCount : (p.d.isWin ? 1 : 0)), 0);
-      const cost = perFive.length * cfg.stake * bets;
+      const cost = betsTotal * cfg.stake;
       const net = perFive.reduce((a, p) => a + p.d.payout, 0) - cost;
       box.innerHTML = `
         <div class="result-strip${wins ? ' win' : ''}">
@@ -545,7 +597,9 @@ function renderToday() {
           <div class="kpi-inline">
             <div class="kpi-chip"><div class="k-label">命中注数</div><div class="k-value ${wins ? 'positive' : ''}">${wins} / ${betsTotal}</div></div>
             <div class="kpi-chip"><div class="k-label">本期净收益</div><div class="k-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)}</div></div>
-            <div class="kpi-chip"><div class="k-label">逐组</div><div class="k-value gold">${perFive.map((p) => `${p.e.code} ${isSpecial ? `${p.d.hitCount}/${bets}` : p.d.hitCount}`).join(' · ')}</div></div>
+            <div class="kpi-chip"><div class="k-label">${isSpecial ? '清单命中' : '逐组'}</div><div class="k-value gold">${isSpecial
+        ? `${wins}/${betsTotal} 注`
+        : perFive.map((p) => `${p.e.code} ${p.d.hitCount}`).join(' · ')}</div></div>
           </div>
         </div>`;
     }
@@ -558,7 +612,7 @@ function renderToday() {
     costLine.innerHTML = [
       `单注 ${cfg.stake} 元 × ${betsTotal} 注 = ${amount(betsTotal * cfg.stake)}`,
       isSpecial
-        ? `单注（1 个号）命中 ${formatPercent(cov.perBet ?? 1 / 49, 4)} · 每组 ${bets} 注命中 ${formatPercent(cov.perTicket, 4)}（公平赔率 ${fair} 倍）`
+        ? `单注（1 个号）命中 ${formatPercent(cov.perBet ?? 1 / 49, 4)} · 整张清单 ${bets} 个号命中 ${formatPercent(cov.perTicket, 4)}（公平赔率 ${fair} 倍）`
         : `单注命中 ${formatPercent(cov.perTicket, 4)}（公平赔率 ${fair} 倍）`,
       `当前赔率 ${odds} 倍 → 回报率 <b>${formatPercent(ev, 1)}</b>`,
       `${betsTotal} 注至少中 1 注 <b>${formatPercent(cov.anyHit, 3)}</b>`
@@ -662,7 +716,8 @@ function periodMoney(rec) {
   let payout = 0;
   for (const e of rec.five) {
     wins += isSpecial ? (e.hitCount || 0) : (e.isWin ? 1 : 0);
-    cost += cfg.stake * bets;
+    // 特码：每组号码个数就是注数（12 号清单 = 12 注）；直选：每组 1 注
+    cost += cfg.stake * (isSpecial ? e.numbers.length : bets);
     payout += e.payout || 0;
   }
   return {
@@ -716,7 +771,7 @@ function replayRowHtml(rec, idx) {
       ? (e.isWin ? `${e.name} 覆盖了特码` : `${e.name} 没覆盖特码`)
       : (e.isWin ? `${e.name} 命中 ${size} 个正码` : `${e.name} 命中 ${e.hitCount}/${size} 个正码`);
     const specialTitle = isSpecial ? `${e.name} 中 ${e.hitCount || 0} 注（${e.numbers.length} 个号）` : title;
-    // 特码每组 3 注：显示中了几个号（0/1/2/3）；直选组只有中/不中
+    // 特码：显示清单里中了几个号（0/12）；直选组只有中/不中
     const badgeText = isSpecial ? `${e.hitCount || 0}/${e.numbers.length}` : (e.isWin ? '✓' : e.hitCount);
     return `<span class="badge ${cls}" title="${escapeHtml(specialTitle)}">${escapeHtml(e.code)} ${badgeText}</span>`;
   }).join(' ');
@@ -733,7 +788,7 @@ function replayRowHtml(rec, idx) {
       <td class="col-hit"><div class="cell-five-hits">${perFive}</div></td>
       <td>${resultCellHtml(
         m.wins > 0,
-        `${targetBets(mode) * 5} 注中 ${m.wins} 注`,
+        `${rec.five.reduce((a, e) => a + e.numbers.length, 0)} 注中 ${m.wins} 注`,
         combos,
         m.net
       )}</td>
@@ -758,7 +813,7 @@ function featureDetailHtml(rec) {
     return `
       <div class="fd-five">
         <div class="fd-head">${e.icon} ${escapeHtml(e.code)} ${escapeHtml(e.name)} <span class="fd-nums">${balls}</span></div>
-        <div class="fd-line">${badge} ${hitText} · ${e.isWin ? `返奖 ${amount(e.payout)}` : `未中奖（成本 ${amount(cfg.stake * targetBets(mode))}，每中 1 注返 ${amount(cfg.stake * odds)}）`}</div>
+        <div class="fd-line">${badge} ${hitText} · ${e.isWin ? `返奖 ${amount(e.payout)}` : `未中奖（成本 ${amount(cfg.stake * (isSpecial ? e.numbers.length : targetBets(mode)))}，每中 1 注返 ${amount(cfg.stake * odds)}）`}</div>
       </div>`;
   };
   return `
@@ -837,7 +892,7 @@ function renderReplayMetrics() {
     <div class="metric-card v-num mc-wide">
       <div class="mc-head">
         <span>${isSpecial ? '特码' : modeTitle(mode)} · ${summary.periods} 期回放</span>
-        <span class="mc-label">单注 ${cfg.stake} 元${targetBets(mode) > 1 ? ` · 每组 ${targetBets(mode)} 注` : ''} · 赔率 ${odds} 倍</span>
+        <span class="mc-label">单注 ${cfg.stake} 元${targetBets(mode) > 1 ? ` · ${isSpecial ? '每期' : '每组'} ${targetBets(mode)} 注` : ''} · 赔率 ${odds} 倍</span>
       </div>
       <div class="table-scroll">
         <table class="mc-table">
@@ -854,7 +909,7 @@ function renderReplayMetrics() {
         <div><span class="mc-sm">整体 ROI</span><b>${summary.totalRoi}%</b></div>
       </div>
       <div class="mc-sub">
-        每期开奖独立：5 组只是风格不同，命中次数差异都在随机波动范围内，<b>谁 ROI 高都不代表策略有优势</b>。
+        每期开奖独立：${isSpecial ? '清单里每个号各算 1 注' : '5 组只是风格不同'}，命中次数差异都在随机波动范围内，<b>谁 ROI 高都不代表策略有优势</b>。
       </div>
     </div>`;
 
@@ -864,7 +919,7 @@ function renderReplayMetrics() {
   const plan = getFivePlan(getPeriodContext().target);
   const anyHit = plan.coverage?.anyHit ?? baseline.hitProb;
   const distinct = plan.coverage?.distinct ?? size * 5;
-  const betsNow = targetBets(mode) * 5;
+  const betsNow = plan.coverage?.totalBets ?? (isSpecial ? size : targetBets(mode) * 5);
   const perTicketText = baseline.hitProbPerTicket != null
     ? `，每组命中 <b>${formatPercent(baseline.hitProbPerTicket, 4)}</b>`
     : '';
@@ -872,7 +927,7 @@ function renderReplayMetrics() {
   if (base) {
     base.innerHTML = `随机基线：单注命中 <b>${formatPercent(baseline.hitProb, 4)}</b>${perTicketText}，公平赔率 <b>${fair}</b> 倍；
       当前赔率 ${odds} 倍 → 期望回报率 <b>${formatPercent(ev, 1)}</b>。
-      以当前这期 5 组的实际号码（覆盖 ${distinct} 个号、共 ${betsNow} 注、含随机组与精选的重叠）算 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
+      以当前这期${isSpecial ? '这张清单' : '5 组'}的实际号码（覆盖 ${distinct} 个号、共 ${betsNow} 注）算 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
       回放只是历史统计，不能保证未来中奖，也不构成投注建议。`;
   }
 }

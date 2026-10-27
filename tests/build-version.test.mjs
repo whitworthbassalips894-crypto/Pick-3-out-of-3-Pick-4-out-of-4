@@ -128,9 +128,10 @@ test('Service Worker 的外壳清单包含新引擎 dailyfive.js', () => {
   assert.ok(sw.includes("'./src/app.js'"));
 });
 
-test('页面结构：每日 5 组（1 随机 + 4 风格精选），精简后只保留推荐 / 回放 / 数据 / 设置', () => {
+test('页面结构：特码 12 号清单 / 直选 5 组，精简后只保留推荐 / 回放 / 数据 / 设置', () => {
   const html = read('index.html');
-  assert.ok(html.includes('id="fiveGrid"'), '必须有 5 组卡片容器');
+  assert.ok(html.includes('id="fiveGrid"'), '必须有号码卡片容器');
+  assert.ok(html.includes('12 号清单'), '特码按钮必须写明 12 号清单（12 注）');
   assert.ok(html.includes('id="btnRerollRandom"'), '必须有「重摇随机组」');
   assert.ok(html.includes('id="btnResetRandom"'), '必须有「恢复默认随机」');
   assert.ok(html.includes('id="featuredCostLine"'), '必须有概率 / 赔率口径行');
@@ -142,7 +143,7 @@ test('页面结构：每日 5 组（1 随机 + 4 风格精选），精简后只�
     assert.ok(!html.includes(gone), `旧模块 ${gone} 必须移除`);
   }
   // 回放表头
-  assert.ok(html.includes('5 组逐组命中'));
+  assert.ok(html.includes('本期命中'));
   assert.ok(html.includes('当期 6 正码'));
   assert.ok(html.includes('特码'));
   assert.ok(html.includes('三中三'));
@@ -206,7 +207,7 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   assert.ok(html.includes('data-mode="special"'), '必须能切到特码');
   assert.ok(html.includes('data-mode="pick3"'), '必须能切到选三');
   assert.ok(html.includes('data-mode="pick4"'), '必须能切到选四');
-  assert.ok(html.includes('特码 · 每组 3 号（3 注）'), '要有特码玩法标签（1 中 1，每组 3 个号 = 3 注）');
+  assert.ok(html.includes('特码 · 12 号清单（12 注）'), '要有特码玩法标签（1 中 1，12 个号 = 12 注）');
   assert.ok(html.includes('三中三 · 每组 3 号'), '要有三中三玩法标签');
   assert.ok(html.includes('四中四 · 每组 4 号'), '要有四中四玩法标签');
   // 顺序：特码 → 选三 → 选四
