@@ -89,6 +89,32 @@ test('样式表为浅色主题（背景 / 卡片 / 文字 / 边框 / 金色强�
   assert.ok(!/background:\s*#0b1120/i.test(css), '不能残留旧版深色背景硬编码');
 });
 
+test('特码清单在手机上固定 4 列 × 3 行（12 个号不再随屏宽忽多忽少）', () => {
+  const css = read('assets/styles.css');
+  // 取出 .five-card.is-list .fc-balls 这条规则（含紧随其后的媒体查询）
+  const block = css.slice(css.indexOf('.five-card.is-list .fc-balls'));
+  assert.ok(block, '样式表里必须有 .five-card.is-list .fc-balls 规则');
+  const rule = block.slice(0, block.indexOf('}') + 1);
+
+  assert.ok(/display:\s*grid/.test(rule), '清单的号码容器必须用 grid，否则会随屏宽自动换行');
+  assert.ok(/grid-template-columns:\s*repeat\(4,/.test(rule), '手机端必须固定 4 列（12 个号 = 4 列 × 3 行）');
+  assert.ok(/justify-items:\s*center/.test(rule), '球要在格子里居中，否则会忽左忽右');
+  // 必须顶掉 .fc-body .fc-balls 的 flex: 0 0 auto，否则宽度撑不满、grid 排不出来
+  assert.ok(/flex:\s*1 1 100%/.test(rule), '必须覆盖 .fc-body .fc-balls 的 flex: 0 0 auto');
+
+  // 宽屏一行 6 个 × 2 行
+  assert.ok(
+    /\.five-card\.is-list \.fc-balls\s*\{\s*grid-template-columns:\s*repeat\(6,/.test(css),
+    '宽屏应切到 6 列（2 行）'
+  );
+
+  // 三中三 / 四中四 的 5 组卡片不能被这条规则影响：基础 .fc-balls 仍是 flex
+  const baseRule = css.match(/(?:^|\n)\.fc-balls\s*\{([^}]*)\}/);
+  assert.ok(baseRule, '必须有基础的 .fc-balls 规则');
+  assert.ok(/display:\s*flex/.test(baseRule[1]), '基础 .fc-balls 必须保持 flex（直选 5 组卡片靠它换行）');
+  assert.ok(!/display:\s*grid/.test(baseRule[1]), '基础 .fc-balls 不能改成 grid');
+});
+
 test('Service Worker 只清理本工具前缀的缓存，不误伤同域其它工具', () => {
   const sw = read('sw.js');
   // 去掉注释后再检查代码，避免把注释里的反例写法当成真实实现

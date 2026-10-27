@@ -275,8 +275,20 @@ b { font-weight: 800; }
 }
 .fc-shape span { background: #f1f5f9; border-radius: 5px; padding: 2px 7px; }
 .fc-hit { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
-/* 特码清单：整体布局更松散，图例单独一行 */
-.five-card.is-list .fc-balls { gap: 10px; }
+/* 特码清单：12 个号固定 4 列 × 3 行（手机上一眼看完，不再随屏宽忽多忽少） */
+.five-card.is-list .fc-balls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  justify-items: center;   /* 球在每个格子里居中，不会忽左忽右 */
+  align-items: start;
+  gap: 10px 6px;           /* 行距 10px / 列距 6px */
+  width: 100%;
+  flex: 1 1 100%;          /* 顶掉 .fc-body .fc-balls 的 flex: 0 0 auto */
+}
+/* 宽屏一行 6 个 × 2 行，桌面端不至于太空 */
+@media (min-width: 720px) {
+  .five-card.is-list .fc-balls { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
 .fc-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 2px;
   padding-top: 10px; border-top: 1px dashed var(--line);
