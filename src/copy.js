@@ -29,12 +29,12 @@ export function formatTickets(tickets) {
   return (tickets || []).map((t) => formatNumberLine(t)).join('\n');
 }
 
-/** 每日 5 组（特码 3 个号 / 直选 3 个号或 4 个号，每组一行） */
+/** 今日推荐（特码 12 号清单 / 三中三 7 码复式 / 四中四 5 组 4 号，每组一行） */
 export function formatFiveTickets(five) {
   return formatTickets((five || []).map((e) => e.numbers));
 }
 
-/** 单注（直选 3 码 / 4 码） */
+/** 单注（三中三 3 码 / 四中四 4 码 / 特码单个号） */
 export function formatSingleTicket(numbers) {
   return formatNumberLine(numbers);
 }

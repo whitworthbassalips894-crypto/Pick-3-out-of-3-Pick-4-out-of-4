@@ -30,6 +30,34 @@ export function binomial(n, k) {
 }
 
 /**
+ * 「选的号里至少有 need 个被抽中」的概率（超几何分布，精确值）
+ *
+ * 用于 7 码复式：选出 7 个号、开奖抽出 6 个正码，
+ * 7 个号里至少 3 个被抽中 → 至少有一注三中三命中。
+ *   1 - P(k ≤ 2) = 3.095%
+ *
+ * @param {number} selected 自己选的号码个数（7）
+ * @param {number} [drawn=6] 开奖抽出的号码个数（6 个正码）
+ * @param {number} [need=3] 每注需要几个号（三中三 = 3，四中四 = 4）
+ * @param {number} [population=49] 号码池
+ * @returns {number} 0~1
+ */
+export function atLeastMatchProbability(selected, drawn = 6, need = 3, population = 49) {
+  const sel = Math.trunc(Number(selected));
+  const drew = Math.trunc(Number(drawn));
+  const k0 = Math.trunc(Number(need));
+  const pop = Math.trunc(Number(population));
+  if (!(sel > 0) || !(drew > 0) || !(pop > 0) || k0 > Math.min(sel, drew)) return 0;
+  const total = binomial(pop, drew);
+  if (!(total > 0)) return 0;
+  let favorable = 0;
+  for (let k = Math.max(0, k0); k <= Math.min(sel, drew); k++) {
+    favorable += binomial(sel, k) * binomial(pop - sel, drew - k);
+  }
+  return Math.min(1, favorable / total);
+}
+
+/**
  * 生成数组的所有 C(n, k) 组合（字典序升序）
  * @template T
  * @param {T[]} items

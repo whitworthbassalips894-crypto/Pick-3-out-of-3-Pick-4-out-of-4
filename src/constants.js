@@ -9,7 +9,7 @@
  * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
  * 由 tests/build-version.test.mjs 自动校验三处一致性。
  */
-export const APP_BUILD = '2026.10.27-r18';
+export const APP_BUILD = '2026.10.29-r19';
 
 /** 页面上显示的版本标签 */
 export const APP_VERSION_LABEL = `v${APP_BUILD}`;
@@ -126,7 +126,10 @@ export function padPeriod(period) {
  * 默认收益与系统配置
  */
 export const DEFAULT_CONFIG = {
-  stake: 10, // 默认单注本金 10 元（直选：每注 1 注投注）
+  stake: 10, // 特码 / 四中四 的单注本金（元）
+  // 三中三是 7 码复式 = 35 注/期，按 10 元/注 就是 350 元/期，太贵了。
+  // 2 元/注 = 70 元/期：只比特码（12 注 × 10 元 = 120 元）便宜，但命中率比原来 5 注高 5.7 倍。
+  stake3: 2,
   odds3: 650, // 默认三中三赔率 650 倍
   odds4: 7500, // 默认四中四赔率 7500 倍
   // 默认特码赔率 48 倍（1 注 1 个号，命中 = 开奖特码正好是这 1 个号）
@@ -158,6 +161,7 @@ export const PLAY_MODES = {
     //   · 注数少于 12：中奖率太低（9 注 18.4%，6 注 12.2%）
     //   · 注数多于 12：收益率下降更快（15 注 220%，24 注 100%），而 EV 恒为 −n/49，买越多亏越多
     size: 12,
+    ticketSize: 1, // 1 个号 = 1 注
     bets: 12,
     // 渲染形态：'list' = 一张清单（特码没有「分组」概念，5 组只是从三中三继承来的壳）
     layout: 'list',
@@ -171,17 +175,24 @@ export const PLAY_MODES = {
     id: 'pick3',
     name: '选三',
     title: '三中三',
-    size: 3,
-    bets: 1,
+    // 7 码复式：选出 7 个号，等于把 C(7,3) = 35 个三连组合**全部买下**
+    //   命中率：7 个号里至少有 3 个落在 6 个正码里 → 3.095%（≈ 1/32，原来是 0.543%）
+    //   返奖率不变（复式不改变任何一注的 RTP，还是 650 × 20/18424 ≈ 70.56%）
+    //   代价：注数 35 倍、成本 7 倍 → 所以默认本金单独降到 2 元/注（70 元/期）
+    size: 7,
+    ticketSize: 3, // 每注 3 个号
+    bets: 35,
+    layout: 'complex',
     target: 'normals',
     oddsKey: 'odds3',
-    hitRule: '这 3 个号码全部落在 6 个正码里才算命中'
+    hitRule: '7 个号里任意 3 个落在 6 个正码里，对应的那一注就中（共 35 注）'
   },
   pick4: {
     id: 'pick4',
     name: '选四',
     title: '四中四',
     size: 4,
+    ticketSize: 4,
     bets: 1,
     target: 'normals',
     oddsKey: 'odds4',
@@ -218,4 +229,50 @@ export function betsPerTicket(mode) {
   const spec = getPlayMode(mode);
   const bets = Math.trunc(Number(spec.bets ?? 1));
   return bets >= 1 ? bets : 1;
+}
+
+/**
+ * 组合数 C(n, k)（只用于「一个选项折算几注」这类小规模计算）
+ * @param {number} n
+ * @param {number} k
+ * @returns {number}
+ */
+export function combinationsCount(n, k) {
+  const N = Math.trunc(Number(n));
+  const K = Math.trunc(Number(k));
+  if (!Number.isFinite(N) || !Number.isFinite(K) || K < 0 || K > N) return 0;
+  const m = Math.min(K, N - K);
+  let result = 1;
+  for (let i = 1; i <= m; i++) result = (result * (N - m + i)) / i;
+  return Math.round(result);
+}
+
+/**
+ * 一个选项（一组号码）折算成几注
+ *
+ *   · 特码：1 个号就是 1 注 → 号码个数
+ *   · 三中三：7 码复式 → C(7,3) = 35 注
+ *   · 四中四：4 码 = 1 注
+ *
+ * @param {string} mode
+ * @param {number} [numberCount] 实际号码个数（不传则用玩法默认值）
+ * @returns {number}
+ */
+export function betsForNumbers(mode, numberCount) {
+  const spec = getPlayMode(mode);
+  const ticketSize = Math.max(1, Math.trunc(Number(spec.ticketSize ?? spec.size ?? 1)));
+  const count = Math.max(0, Math.trunc(Number(numberCount ?? spec.size ?? 0)));
+  if (count < ticketSize) return 0;
+  return combinationsCount(count, ticketSize);
+}
+
+/**
+ * 每个玩法默认的单注本金取哪个配置项
+ *  · 三中三用 stake3（35 注/期，本金单独设小一点）
+ *  · 特码 / 四中四用 stake
+ * @param {string} mode
+ * @returns {string}
+ */
+export function stakeKeyForMode(mode) {
+  return getPlayMode(mode).id === 'pick3' ? 'stake3' : 'stake';
 }
