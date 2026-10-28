@@ -29,7 +29,7 @@ export function formatTickets(tickets) {
   return (tickets || []).map((t) => formatNumberLine(t)).join('\n');
 }
 
-/** 今日推荐（特码 12 号清单 / 三中三 7 码复式 / 四中四 5 组 4 号，每组一行） */
+/** 今日推荐（特码 12 号清单 / 三中三、四中四各 5 组，每组一行） */
 export function formatFiveTickets(five) {
   return formatTickets((five || []).map((e) => e.numbers));
 }

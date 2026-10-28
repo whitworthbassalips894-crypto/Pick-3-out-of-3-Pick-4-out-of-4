@@ -289,11 +289,6 @@ b { font-weight: 800; }
 @media (min-width: 720px) {
   .five-card.is-list .fc-balls { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
-/* 三中三 7 码复式：7 个号自然换行（4 列网格会留 1 个孤零零的球） */
-.five-card.is-complex .fc-balls {
-  display: flex; flex-wrap: wrap; gap: 8px 6px;
-  width: 100%; flex: 1 1 100%; justify-content: flex-start;
-}
 .fc-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 2px;
   padding-top: 10px; border-top: 1px dashed var(--line);
@@ -305,10 +300,6 @@ b { font-weight: 800; }
 .legend-note { color: var(--faint); margin-left: auto; }
 /* 「对齐凭证」标签：点一下复制分享链接 */
 #heroShare { cursor: pointer; }
-/* 复式中奖组合（点开看哪几注中了） */
-.fc-combos { flex-basis: 100%; font-size: 0.74rem; color: var(--muted); }
-.fc-combos summary { cursor: pointer; color: var(--gold-deep); font-weight: 700; }
-.fc-combos div { margin-top: 4px; line-height: 1.7; word-break: break-all; }
 /* 「上一 / 下一命中」跳转后的高亮 */
 @keyframes rowFlash {
   from { background: #fff6d6; }
@@ -355,6 +346,12 @@ tr.row-flash > td { animation: rowFlash 1.6s ease-out; }
 .fold > summary::before { content: "▸"; color: var(--gold); transition: transform 0.15s; }
 .fold[open] > summary::before { transform: rotate(90deg); }
 .fold-body { padding: 0 16px 16px; }
+/* 折叠区里的子折叠（补位工具）：去掉卡片阴影，视觉上从属于上一层 */
+.fold-sub {
+  margin-top: 12px; background: #f8fafc; border-style: dashed; box-shadow: none;
+}
+.fold-sub > summary { font-size: 0.82rem; padding: 10px 12px; color: var(--muted); }
+.fold-sub .fold-body { padding: 0 12px 12px; }
 
 /* ---------------- ② 自选 ---------------- */
 /* ---------------- ③ 核对 ---------------- */

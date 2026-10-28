@@ -154,7 +154,7 @@ export function sanitizeConfig(raw, defaults) {
     return n;
   };
   out.stake = num(raw.stake, defaults.stake, 1, 1_000_000);
-  // 三中三 35 注/期，本金单独设（旧版本没有这个字段 → 用默认 2 元，不影响已存的特码本金）
+  // 旧版三中三「7 码复式」的独立本金键：保留读入以兼容老存档，现在的 5 注方案只用 stake
   out.stake3 = num(raw.stake3, defaults.stake3 ?? defaults.stake, 1, 1_000_000);
   out.odds3 = num(raw.odds3, defaults.odds3, 1, 1_000_000);
   out.odds4 = num(raw.odds4, defaults.odds4, 1, 1_000_000);

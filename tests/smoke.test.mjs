@@ -176,27 +176,27 @@ async function bootPage(url) {
   return { window, doc, text, balls, errors, restore };
 }
 
-test('三中三 7 码复式：1 张卡片、7 个号、35 注，中 k 个正码中 C(k,3) 注', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
+test('三中三回到每天 5 注：5 张卡片 × 每组 3 个号，全中才算中', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
   const target = INITIAL_DB.draws.find((d) => d.id === '2026-287');
-  const page = await bootPage(`https://example.com/?p=2026-287&salt=0&m=pick3`);
+  const page = await bootPage('https://example.com/?p=2026-287&salt=0&m=pick3');
   try {
-    const { doc, text, balls } = page;
-    assert.equal(doc.querySelectorAll('#fiveGrid .five-card').length, 1, '三中三只有 1 张复式卡片');
-    assert.ok(doc.querySelector('#fiveGrid .five-card.is-complex'), '三中三卡片要有 is-complex 类（7 个号自然换行）');
-    const nums = balls();
-    assert.equal(nums.length, 7, `7 码复式应有 7 个号，实际 ${nums.length}`);
-    assert.equal(new Set(nums).size, 7, '7 个号不能重复');
-    const zones = [nums.filter((n) => n <= 16).length, nums.filter((n) => n > 16 && n <= 33).length, nums.filter((n) => n > 33).length];
-    assert.deepEqual(zones, [3, 2, 2], `三区应 3-2-2，实际 ${zones.join('-')}`);
-    assert.equal(nums.filter((n) => n % 2 === 1).length, 4, '奇偶应 4:3');
-    assert.ok((text('featuredCostLine') || '').includes('35 注'), '注数说明要写 35 注');
-    assert.ok((text('heroMeta') || '').includes('35 注'), '头部说明要写 35 注');
+    const { doc, text } = page;
+    const cards = [...doc.querySelectorAll('#fiveGrid .five-card')];
+    assert.equal(cards.length, 5, '三中三应为 5 组');
+    assert.equal(doc.querySelectorAll('#fiveGrid .five-card.is-complex').length, 0, '三中三不再有复式卡片');
+    const groups = cards.map((c) => [...c.querySelectorAll('.fc-balls .lotto-ball')]
+      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '').slice(0, 2))));
+    for (const g of groups) {
+      assert.equal(g.length, 3, `每组应 3 个号，实际 ${g.length}`);
+      assert.equal(new Set(g).size, 3, '每组内不能重复');
+    }
+    assert.ok((text('featuredCostLine') || '').includes('5 注'), `注数应为 5 注：${text('featuredCostLine')}`);
+    assert.ok((text('heroMeta') || '').includes('5 注'), `头部应显示 5 注：${text('heroMeta')}`);
 
-    // 结算口径：命中注数 = C(命中正码数, 3)
-    const hits = nums.filter((n) => target.numbers.includes(n)).length;
-    const expectWins = hits < 3 ? 0 : (hits * (hits - 1) * (hits - 2)) / 6;
-    assert.ok(text('heroResult').includes(`命中注数${expectWins} / 35`), `结算口径错误：${text('heroResult')}`);
-    assert.equal(doc.querySelectorAll('#fiveGrid .fc-legend .legend-item').length, 4, '图例应有 4 个风格');
+    // 结算口径：哪一组的 3 个号全在正码里，哪一组就中 1 注
+    const expectWins = groups.filter((g) => g.every((n) => target.numbers.includes(n))).length;
+    assert.ok(text('heroResult').includes(`5 注中 ${expectWins} 注`), `结算口径错误：${text('heroResult')}`);
+    assert.equal(cards[0].textContent.includes('随机对照'), true, '第 1 组仍是纯随机对照');
   } finally {
     page.restore();
   }
@@ -207,7 +207,7 @@ test('跨设备对齐：网址里的 p / salt / m 决定同一张号码，重摇
   try {
     const { window, doc, text, balls } = page;
     assert.equal(doc.querySelector('#periodSelect').value, '2026-290', '期号要跟着网址走');
-    assert.ok(doc.querySelector('.five-card.is-complex'), '玩法要跟着网址切到三中三');
+    assert.equal(doc.querySelectorAll('#fiveGrid .five-card').length, 5, '玩法要跟着网址切到三中三（5 组）');
     assert.ok(text('heroShare').includes('🎲#3'), `对齐标签应显示重摇次数：${text('heroShare')}`);
     const first = balls().join(',');
 

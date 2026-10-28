@@ -1,11 +1,11 @@
 /**
  * 六合彩选号助手前端主控制器（特码 / 三中三 / 四中四）
  *
- * 一页流结构：① 今日号码 → ② 历史回放 → ③ 数据（折叠） → ④ 设置（折叠）
+ * 一页流结构：① 数据同步（置顶） → ② 今日号码 → ③ 历史回放 → ④ 设置
  *
- * 三种玩法的形态（r19 起）：
+ * 三种玩法的形态：
  *  - 特码   ：一张 12 号清单，1 个号 = 1 注 → 12 注
- *  - 三中三 ：一张 7 码复式，C(7,3) = 35 注
+ *  - 三中三 ：每天 5 组，每组 3 个号 = 5 注
  *  - 四中四 ：5 组，每组 4 个号 = 1 注 → 5 注
  *  - 命中口径：特码看开奖特码是否在清单里；直选看号码是否全部落在 6 个正码里（特码不计入）。
  *  - 历史回放严格「无未来函数」：第 T 期推荐只用 T 期之前的数据。
@@ -134,7 +134,7 @@ function targetSize(mode = playMode()) {
   return getPlayMode(resolveMode(mode)).size;
 }
 
-/** 每个选项折算成几注（特码 = 号码个数，三中三 7 码 = 35 注，四中四 1 注） */
+/** 每个选项折算成几注（特码 = 号码个数；三中三 / 四中四每组 1 注） */
 function targetBets(mode = playMode()) {
   return betsPerTicket(resolveMode(mode));
 }
@@ -152,7 +152,7 @@ function totalBets(mode = playMode(), groups = 5) {
   return targetBets(mode) * Math.max(1, Math.trunc(Number(groups) || 5));
 }
 
-/** 某张卡片的所有注单（复式要展开成 35 注） */
+/** 某张卡片的所有注单（特码 1 个号 = 1 注） */
 function entryTickets(e, mode = playMode()) {
   return expandEntryTickets(e.numbers, getPlayMode(resolveMode(mode)));
 }
@@ -350,7 +350,7 @@ function loadSavedState() {
   state.localDraws = persisted.localDraws;
   state.customPicks = persisted.customPicks;
   state.pinnedPicks = persisted.pinnedPicks;
-  // 旧版本是 7 码复式自选；直选玩法每注只放 3 / 4 个号，这里按当前玩法收敛（其余号码保留在旧版本数据里，不再参与计算）
+  // 旧版本的自选号码；直选玩法每注只放 3 / 4 个号，这里按当前玩法收敛（其余号码保留在旧版本数据里，不再参与计算）
   const size = targetSize();
   if (state.customPicks.length > size) {
     state.customPicks = state.customPicks.slice(0, size);
@@ -428,8 +428,7 @@ function getFivePlan(target) {
 /**
  * 下单参数
  *
- * 本金按玩法取：三中三是 35 注/期，单独用 stake3（默认 2 元），
- * 特码 / 四中四用 stake（默认 10 元）。
+ * 三种玩法都是「1 注 1 份本金」，统一用 stake（默认 10 元）。
  * @param {string} [mode]
  */
 const betConfig = (mode = playMode()) => ({
@@ -439,14 +438,14 @@ const betConfig = (mode = playMode()) => ({
   oddsSpecial: state.config.oddsSpecial ?? DEFAULT_CONFIG.oddsSpecial
 });
 
-/** 当前玩法的单注本金 */
+/** 当前玩法的单注本金（统一 stake） */
 function currentStake(mode = playMode()) {
   const key = stakeKeyForMode(resolveMode(mode));
   const v = Number(state.config[key] ?? state.config.stake);
   return Number.isFinite(v) && v > 0 ? v : Number(DEFAULT_CONFIG[key] ?? DEFAULT_CONFIG.stake);
 }
 
-/** 当前玩法一张卡片折算几注（特码 12 / 三中三 35 / 四中四 1） */
+/** 当前玩法一张卡片折算几注（特码 12 个号 = 12 注；三中三 / 四中四每组 1 注） */
 function entryBets(mode = playMode(), count = null) {
   return betsForNumbers(resolveMode(mode), count ?? targetSize(mode));
 }
@@ -458,7 +457,7 @@ function entryBets(mode = playMode(), count = null) {
  * 详细规则与测试见 src/copy.js。
  */
 
-/** 今日推荐（每组一行：特码 12 号清单 / 三中三 7 码 / 四中四 5 组 4 号） */
+/** 今日推荐（每组一行：特码 12 号清单 / 三中三 / 四中四各 5 组） */
 function fiveText(plan) {
   return formatFiveTickets(plan.five);
 }
@@ -480,7 +479,7 @@ function renderOddsNote() {
   const stake = Number(state.config.stake) || DEFAULT_CONFIG.stake;
   const rows = [
     { key: 'oddsSpecial', label: '特码（12 号清单 = 12 注）', mode: 'special' },
-    { key: 'odds3', label: '三中三（7 码复式 = 35 注）', mode: 'pick3' },
+    { key: 'odds3', label: '三中三（每组 3 号 = 1 注）', mode: 'pick3' },
     { key: 'odds4', label: '四中四（每组 4 个号 = 1 注）', mode: 'pick4' }
   ];
   const parts = rows.map(({ key, label, mode }) => {
@@ -493,7 +492,7 @@ function renderOddsNote() {
       : ev < 0.5 ? '（长期为负）' : ev > 1 - 1e-6 ? '（公平值）' : '';
     // 特码是 1 中 1：1 个号 = 1 注，公平赔率 49 倍，市面常见 48 倍
     const perTicket = base.hitProbPerTicket != null
-      ? `（${mode === 'special' ? '整张清单' : mode === 'pick3' ? '35 注至少中 1 注' : '每组'} = ${formatPercent(base.hitProbPerTicket, 4)}）`
+      ? `（${mode === 'special' ? '整张清单' : '5 注至少中 1 注'} = ${formatPercent(base.hitProbPerTicket, 4)}）`
       : '';
     const marketHint = mode === 'special' ? '（1 中 1：市面常见 48 倍）' : '';
     return `${label}：${odds} 倍 → 单注命中 P = ${formatPercent(base.hitProb, 4)}${perTicket}，公平赔率约 ${fair % 1 === 0 ? fair : fair.toFixed(1)} 倍，期望回报率约 ${formatPercent(ev, 1)}${flag}${marketHint}`;
@@ -517,8 +516,6 @@ function renderHeader() {
   }
   const cfgStake = $('cfgStake');
   if (cfgStake) cfgStake.value = state.config.stake;
-  const cfgStake3 = $('cfgStake3');
-  if (cfgStake3) cfgStake3.value = state.config.stake3 ?? DEFAULT_CONFIG.stake3;
   const cfgOdds3 = $('cfgOdds3');
   if (cfgOdds3) cfgOdds3.value = state.config.odds3;
   const cfgOdds4 = $('cfgOdds4');
@@ -570,9 +567,8 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
   const size = e.numbers.length;
   const isSpecial = mode === 'special';
   const layout = e.layout || (isSpecial ? 'list' : 'groups');
-  // 「清单型」卡片：特码 12 号 / 三中三 7 码复式 —— 一整张号码，不是分组
-  const isList = layout === 'list' || layout === 'complex';
-  const isComplex = layout === 'complex';
+  // 「清单型」卡片：只有特码 12 号清单 —— 一整张号码，不是分组
+  const isList = layout === 'list';
   const bets = isList ? entryBets(mode, size) : targetBets(mode);
   // 直选：命中 = 这一注的号码全部落在 6 个正码里
   // 特码（1 中 1）：命中 = 开奖的最后一个号码正好等于这 1 个号
@@ -597,7 +593,7 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
 
   let hitHtml = '';
   if (ctx.draw) {
-    // 复式要展开成实际注单再结算（7 码 → 35 注）
+    // 统一展开成实际注单再结算（特码 1 个号 = 1 注）
     const tickets = entryTickets(e, mode);
     const ev = evaluateTickets(tickets, ctx.draw, {
       ...cfg,
@@ -611,10 +607,6 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
       label = winners.length
         ? `中 ${winners.length} 注 ✓ 返奖 ${amount(ev.payout)}`
         : `未中 · 本期特码是 ${ctx.draw.special != null ? pad2(ctx.draw.special) : '—'}`;
-    } else if (isComplex) {
-      label = winners.length
-        ? `中 ${winners.length} 注（共 ${tickets.length} 注）✓ 返奖 ${amount(ev.payout)}`
-        : `未中 · ${size} 个号里命中 ${normalsHit.length} 个正码（需 3 个才中）`;
     } else {
       label = ev.winCount
         ? `中${size} ✓ 返奖 ${amount(ev.payout)}`
@@ -626,7 +618,6 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
         ${isSpecial
           ? (normalsHit.length ? `<span class="tag tag-muted">命中 ${numsText(normalsHit)}</span>` : '')
           : (normalsHit.length ? `<span class="tag tag-muted">命中正码 ${numsText(normalsHit)}</span>` : '')}
-        ${isComplex && winners.length ? `<details class="fc-combos"><summary>看中奖组合（${winners.length} 注）</summary><div>${winners.map((d) => numsText(d.nums)).join('；')}</div></details>` : ''}
       </div>`;
   }
 
@@ -636,21 +627,19 @@ function fiveCardHtml(e, ctx, cfg, consensusSet = new Set(), index = 1, mode = p
       `<span class="legend-item${b.id === 'random' ? ' is-random' : ''}">`
       + `${b.icon} ${escapeHtml(b.name)} <b>${b.count}</b></span>`
     )).join('')}
-      <span class="legend-note">${isComplex
-        ? `7 个号 = C(7,3) = ${bets} 注复式；🎲 为纯随机对照`
-        : `每个号都是一注；🎲 为纯随机对照`}</span></div>`
+      <span class="legend-note">每个号都是一注；🎲 为纯随机对照</span></div>`
     : '';
 
   return `
-    <article class="five-card${e.random ? ' is-random' : ''}${layout === 'list' ? ' is-list' : ''}${isComplex ? ' is-complex' : ''}" data-five="${escapeHtml(e.id)}">
+    <article class="five-card${e.random ? ' is-random' : ''}${isList ? ' is-list' : ''}" data-five="${escapeHtml(e.id)}">
       <header class="fc-head">
-        <span class="fc-idx">${isComplex ? '复式' : isList ? '本期清单' : `第 ${index} 组`}</span>
+        <span class="fc-idx">${isList ? '本期清单' : `第 ${index} 组`}</span>
         <span class="fc-icon">${e.icon}</span>
         <span class="fc-name">${escapeHtml(e.name)}</span>
         ${isList ? '' : (e.random ? '<span class="tag tag-muted">随机对照</span>' : '<span class="tag tag-gold">精选</span>')}
         ${bets > 1 ? `<span class="tag tag-muted">${bets} 注</span>` : ''}
         <span class="fc-actions">
-          <button type="button" class="btn btn-sm" data-copy-five="${escapeHtml(e.id)}">${isComplex ? '复制 7 码' : isList ? '复制清单' : '复制本组'}</button>
+          <button type="button" class="btn btn-sm" data-copy-five="${escapeHtml(e.id)}">${isList ? '复制清单' : '复制本组'}</button>
         </span>
         <span class="fc-rationale">${escapeHtml(e.rationale || '')}</span>
       </header>
@@ -680,8 +669,7 @@ function renderToday() {
   const odds = currentOdds(mode);
   const baseline = directBaseline(mode);
   const layout = plan.layout || getPlayMode(mode).layout || 'groups';
-  const isList = layout === 'list' || layout === 'complex';
-  const isComplex = layout === 'complex';
+  const isList = layout === 'list';
   const bets = isList ? entryBets(mode, size) : targetBets(mode);
   const betsTotal = isList ? bets : totalBets(mode, plan.five.length);
   const cov = plan.coverage || {
@@ -711,9 +699,7 @@ function renderToday() {
       const list = plan.five[0] || {};
       const st = list.shape || {};
       const randomN = (list.breakdown || []).find((b) => b.id === 'random');
-      heroMeta.textContent = (isComplex
-        ? `${size} 码复式 ${betsTotal} 注：`
-        : `本机清单 ${betsTotal} 注：`) +
+      heroMeta.textContent = `本机清单 ${betsTotal} 注：` +
         `奇偶 ${st.odd ?? 0}:${st.even ?? 0} · 大小 ${st.big ?? 0}:${st.small ?? 0} · ` +
         `三区 ${st.zone1 ?? 0}-${st.zone2 ?? 0}-${st.zone3 ?? 0}` +
         (randomN && randomN.numbers.length ? ` · 其中 🎲 ${randomN.numbers.length} 个为纯随机对照` : '');
@@ -736,7 +722,7 @@ function renderToday() {
     if (!ctx.draw) {
       box.innerHTML = '';
     } else {
-      // 每张卡片按实际注单结算：特码 12 注 / 三中三 35 注 / 四中四 1 注
+      // 每张卡片按实际注单结算：特码 12 注 / 三中三 1 注 / 四中四 1 注
       const perFive = plan.five.map((e) => {
         const tickets = entryTickets(e, mode);
         const ev = evaluateTickets(tickets, ctx.draw, {
@@ -770,9 +756,7 @@ function renderToday() {
   if (costLine) {
     const perTicketText = isSpecial
       ? `单注（1 个号）命中 ${formatPercent(cov.perBet ?? 1 / 49, 4)} · 整张清单 ${size} 个号命中 ${formatPercent(cov.perTicket, 4)}`
-      : isComplex
-        ? `单注（3 个号）命中 ${formatPercent(cov.perBet ?? baseline.hitProb, 4)} · ${size} 码复式至少中 1 注 ${formatPercent(cov.perTicket, 4)}`
-        : `单注命中 ${formatPercent(cov.perTicket, 4)}`;
+      : `单注命中 ${formatPercent(cov.perTicket, 4)}`;
     costLine.innerHTML = [
       `单注 ${cfg.stake} 元 × ${betsTotal} 注 = ${amount(betsTotal * cfg.stake)}`,
       `${perTicketText}（公平赔率 ${fair} 倍）`,
@@ -883,9 +867,9 @@ function periodMoney(rec) {
   let cost = 0;
   let payout = 0;
   for (const e of rec.five) {
-    // 每种玩法的「中奖注数」就是 hitCount（特码 = 中了的号码数、复式 = 中了的组合数、直选 = 0/1）
+    // 每种玩法的「中奖注数」就是 hitCount（特码 = 中了的号码数、直选 = 命中的组数）
     wins += e.hitCount || 0;
-    // 注数优先用记录里的实际值（特码 12 / 复式 35 / 直选 1）
+    // 注数优先用记录里的实际值（特码 12 / 直选 1）
     const betsThis = Number.isFinite(e.bets) && e.bets > 0 ? e.bets : (e.numbers.length === size ? bets : e.numbers.length);
     cost += cfg.stake * betsThis;
     payout += e.payout || 0;
@@ -934,7 +918,7 @@ function replayRowHtml(rec, idx) {
     })
     : '<span class="badge special">—</span>';
 
-  // 每张卡片（特码清单 / 三中三复式 / 四中四各组）的命中
+  // 每张卡片（特码清单 / 三中三、四中四各组）的命中
   const perFive = rec.five.map((e) => {
     const betsThis = Number.isFinite(e.bets) && e.bets > 0 ? e.bets : e.numbers.length;
     const cls = e.hitCount > 0 ? 'hit' : 'miss';
@@ -943,7 +927,7 @@ function replayRowHtml(rec, idx) {
       : (betsThis > 1
         ? `${e.name}：${betsThis} 注中 ${e.hitCount} 注`
         : (e.isWin ? `${e.name} 命中 ${size} 个正码` : `${e.name} 命中 ${e.matchedNormalCount ?? 0}/${size} 个正码`));
-    // 注数 > 1 的（特码 12 注 / 复式 35 注）显示「中了几注」；单注组显示 ✓ / —
+    // 注数 > 1 的（特码 12 注）显示「中了几注」；单注组显示 ✓ / —
     const badgeText = betsThis > 1 ? `${e.hitCount || 0}/${betsThis}` : (e.isWin ? '✓' : '—');
     return `<span class="badge ${cls}" title="${escapeHtml(title)}">${escapeHtml(e.code)} ${badgeText}</span>`;
   }).join(' ');
@@ -1079,12 +1063,12 @@ function renderReplayMetrics() {
     <div class="metric-card v-num mc-wide">
       <div class="mc-head">
         <span>${isSpecial ? '特码' : modeTitle(mode)} · ${summary.periods} 期回放</span>
-        <span class="mc-label">单注 ${cfg.stake} 元${targetBets(mode) > 1 ? ` · ${isSpecial ? '每期' : plan.layout === 'complex' ? '整张' : '每组'} ${targetBets(mode)} 注` : ''} · 赔率 ${odds} 倍</span>
+        <span class="mc-label">单注 ${cfg.stake} 元${targetBets(mode) > 1 ? ` · ${isSpecial ? '每期' : '每组'} ${targetBets(mode)} 注` : ''} · 赔率 ${odds} 倍</span>
       </div>
       <div class="table-scroll">
         <table class="mc-table">
           <thead>
-            <tr><th>${isSpecial ? '清单' : plan.layout === 'complex' ? '复式' : '组'}</th><th>命中</th><th>场均命中注数</th><th>累计返奖(元)</th><th>ROI</th></tr>
+            <tr><th>${isSpecial ? '清单' : '组'}</th><th>命中</th><th>场均命中注数</th><th>累计返奖(元)</th><th>ROI</th></tr>
           </thead>
           <tbody>${rows || '<tr><td colspan="5">暂无数据</td></tr>'}</tbody>
         </table>
@@ -1096,13 +1080,13 @@ function renderReplayMetrics() {
         <div><span class="mc-sm">整体 ROI</span><b>${summary.totalRoi}%</b></div>
       </div>
       <div class="mc-sub">
-        每期开奖独立：${isSpecial ? '清单里每个号各算 1 注' : plan.layout === 'complex' ? '复式已经把 35 个组合买满，号码怎么选都不改变命中率' : '5 组只是风格不同'}，命中次数差异都在随机波动范围内，<b>谁 ROI 高都不代表策略有优势</b>。
+        每期开奖独立：${isSpecial ? '清单里每个号各算 1 注' : '5 组只是风格不同'}，命中次数差异都在随机波动范围内，<b>谁 ROI 高都不代表策略有优势</b>。
       </div>
     </div>`;
 
   const ev = expectedReturnRate(mode, odds);
   const fair = baseline.fairOdds >= 100 ? Math.round(baseline.fairOdds) : baseline.fairOdds.toFixed(1);
-  // 「至少中 1 注」按当前这一期的实际号码精确算（复式 / 清单都走 plan.coverage）
+  // 「至少中 1 注」按当前这一期的实际号码精确算（走 plan.coverage）
   const anyHit = plan.coverage?.anyHit ?? baseline.hitProb;
   const distinct = plan.coverage?.distinct ?? size * plan.five.length;
   const betsNow = plan.coverage?.totalBets ?? (isSpecial ? size : targetBets(mode) * plan.five.length);
@@ -1113,7 +1097,7 @@ function renderReplayMetrics() {
   if (base) {
     base.innerHTML = `随机基线：单注命中 <b>${formatPercent(baseline.hitProb, 4)}</b>${perTicketText}，公平赔率 <b>${fair}</b> 倍；
       当前赔率 ${odds} 倍 → 期望回报率 <b>${formatPercent(ev, 1)}</b>。
-      以当前这期${isSpecial ? '这张清单' : plan.layout === 'complex' ? '这套 7 码复式' : '5 组'}的实际号码（覆盖 ${distinct} 个号、共 ${betsNow} 注）算 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
+      以当前这期${isSpecial ? '这张清单' : '5 组'}的实际号码（覆盖 ${distinct} 个号、共 ${betsNow} 注）算 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
       回放只是历史统计，不能保证未来中奖，也不构成投注建议。`;
   }
 }
@@ -1291,18 +1275,16 @@ function bindEvents() {
   });
 
   /* ⑤ 设置与数据 */
-  ['cfgStake', 'cfgStake3', 'cfgOdds3', 'cfgOdds4', 'cfgOddsSpecial'].forEach((id) => {
+  ['cfgStake', 'cfgOdds3', 'cfgOdds4', 'cfgOddsSpecial'].forEach((id) => {
     on(id, 'input', () => {
       const stake = Number($('cfgStake').value);
-      const stake3 = Number($('cfgStake3')?.value ?? DEFAULT_CONFIG.stake3);
       const odds3 = Number($('cfgOdds3').value);
       const odds4 = Number($('cfgOdds4').value);
       const oddsSpecial = Number($('cfgOddsSpecial').value);
       if (!Number.isFinite(stake) || stake <= 0) { showToast('⚠ 单注本金必须是大于 0 的数字'); renderHeader(); return; }
-      if (!Number.isFinite(stake3) || stake3 <= 0) { showToast('⚠ 三中三本金必须是大于 0 的数字'); renderHeader(); return; }
       if (!Number.isFinite(odds3) || odds3 <= 0 || !Number.isFinite(odds4) || odds4 <= 0
         || !Number.isFinite(oddsSpecial) || oddsSpecial <= 0) { showToast('⚠ 赔率必须是大于 0 的数字'); return; }
-      state.config = { ...state.config, stake, stake3, odds3, odds4, oddsSpecial };
+      state.config = { ...state.config, stake, odds3, odds4, oddsSpecial };
       saveConfig();
       renderHeader();
       renderToday();

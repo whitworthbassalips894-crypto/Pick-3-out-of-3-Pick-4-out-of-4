@@ -12,7 +12,7 @@
  *   特码   → **一张 12 号清单**（generateDailyFive 走独立分支 + selectSpecialList）
  *            1 个号就是一注，号码之间没有「组」的概念，分组只是从三中三继承下来的壳。
  *   四中四 → 5 组骨架（一组 = 一注组合，分组才有意义），分工见下。
- *   三中三 → 一张 7 码复式（C(7,3) = 35 注，中 k 个正码就中 C(k,3) 注）。
+ *   三中三 → 5 组骨架，每组 3 个号 = 1 注（与四中四同一套分工）。
  *
  * 直选 5 组分工（风格不同，概率相同）：
  *   #1 🎲 完全随机  **纯 49 选 size 等概率机选**，允许与精选重复（对照组，可重摇）
@@ -29,9 +29,9 @@
  * 确定性：同一期 + 同一重摇盐值 + 同一玩法 → 永远得到同一组号码。
  */
 
-import { ALL_NUMBERS, PLAY_MODES, betsPerTicket, combinationsCount, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
+import { ALL_NUMBERS, PLAY_MODES, betsPerTicket, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
 import { isUsableDraw } from './audit.js';
-import { atLeastMatchProbability, binomial, combinations, evaluateTickets, normalizeNumbers } from './combinatorics.js';
+import { binomial, combinations, evaluateTickets, normalizeNumbers } from './combinatorics.js';
 import { getPriorDraws, selectDirectNumbers } from './strategy.js';
 
 export const DAILY_FIVE_CATALOG = [
@@ -103,19 +103,6 @@ export function catalogForMode(mode = 'pick3') {
       random: false,
       layout: 'list',
       description: `${spec.size} 个号 = ${spec.size} 注，奇偶 / 大小 / 三区均衡，其中 🎲 3 个为纯随机对照`
-    }];
-  }
-  if (spec.layout === 'complex') {
-    // 三中三 7 码复式：一张卡片、7 个号、35 注
-    const tickets = Math.round((spec.size * (spec.size - 1) * (spec.size - 2)) / 6);
-    return [{
-      id: 'pick3Set',
-      code: '复式',
-      name: `三中三 ${spec.size} 码复式`,
-      icon: '📋',
-      random: false,
-      layout: 'complex',
-      description: `${spec.size} 个号 = C(${spec.size},3) = ${tickets} 注，三区 3-2-2 / 奇偶 4:3，其中 🎲 2 个为纯随机对照`
     }];
   }
   return DAILY_FIVE_CATALOG.map((m) => ({ ...m }));
@@ -547,7 +534,7 @@ function buildScoreMaps(features, year, periodNum) {
  *
  * statsTable 决定统计口径：
  *   · 特码清单 → features.specialStats（「该号作为**特码**出现」的次数 / 遗漏），mean30 = 30/49
- *   · 三中三 7 码复式 → features.stats（「该号落在 6 个正码里」的次数 / 遗漏），mean30 = 30×6/49
+ *   · 三中三 / 四中四 → features.stats（「该号落在 6 个正码里」的次数 / 遗漏），mean30 = 30×6/49
  *
  * 注意 balance（形态均衡）的打分口径：
  *   旧实现是 `-0.10 × |n − 25|`，也就是「越靠中间分越高」——全域对称、完全不看历史，
@@ -633,23 +620,6 @@ export const SPECIAL_LIST_STYLES = [
 ];
 
 /**
- * 三中三 7 码复式的选号分工（合计 7 个号 → C(7,3) = 35 注）
- *
- * 先说清楚：复式已经把 7 个号的**全部** 35 种三连组合都买下了，
- * 所以 7 个号怎么选，命中率都是同一个数（3.095%）——
- * 这套分工只为「观感」和「成本可控」，不改变任何概率。
- */
-export const PICK3_SET_STYLES = [
-  { id: 'random', count: 2, icon: '🎲', name: '完全随机', description: '49 选 2 等概率机选（纯随机对照，可重摇）' },
-  { id: 'hot', count: 2, icon: '🔥', name: '热号', description: '近 30 / 60 期正码出现最活跃的号' },
-  { id: 'cold', count: 1, icon: '🎯', name: '冷号', description: '正码遗漏最久的号' },
-  { id: 'balance', count: 2, icon: '⚖️', name: '形态均衡', description: '补齐三区 / 奇偶 / 尾数' }
-];
-
-/** 7 码复式的分区模型：三区 3-2-2（一区 01–16 取 3 个、二区 17–33 取 2 个、三区 34–49 取 2 个） */
-export const PICK3_IDEAL_MODEL = { z1: 3, z2s: 1, z2b: 1, z3: 2 };
-
-/**
  * 12 号整体要达到的形态目标
  *
  *   奇偶 6:6、大小 6:6、三区 4:4:4、同一尾数最多出现 2 次（🎲 纯随机号不受约束）
@@ -733,7 +703,7 @@ function residualModel(randomNums, size, idealModel = SPECIAL_IDEAL_MODEL) {
 }
 
 /**
- * 生成一张「风格化号码清单」（特码 12 号清单 / 三中三 7 码复式共用）
+ * 生成一张「风格化号码清单」（特码 12 号清单）
  *
  * 步骤：
  *   1. 🎲 用「期号 + 盐值」定种，49 选 N 等概率机选随机号（纯随机，不排除任何号，可重摇）
@@ -929,21 +899,6 @@ export function selectSpecialList(scoreMaps, options = {}) {
 }
 
 /**
- * 三中三 7 码复式（C(7,3) = 35 注，三区 3-2-2 / 奇偶 4:3）
- * @param {object} scoreMaps
- * @param {object} [options]
- */
-export function selectPick3Set(scoreMaps, options = {}) {
-  return selectCuratedList(scoreMaps, {
-    size: 7,
-    styles: PICK3_SET_STYLES,
-    idealModel: PICK3_IDEAL_MODEL,
-    oddTarget: 4,
-    ...options
-  });
-}
-
-/**
  * N 注号码「至少中 1 注」的精确概率（按实际号码算，允许注与注之间重复）
  *
  * 特码：命中 = 开奖特码落在这一注的 size 个号里，
@@ -975,17 +930,6 @@ export function anyHitProbability(tickets = [], mode = 'pick3') {
   }
 
   const draws = 6;
-  // 复式（一组 7 码 = C(7,3) = 35 注）：35 注用容斥要枚举 2^35，不可行。
-  // 「至少中 1 注」等价于「7 个号里至少有 3 个落在 6 个正码中」，用 atLeastMatchProbability 精确算；
-  // 只有 1 组时结果是精确值（页面就是这个形态），多组时用并集上界（不会高估到失控）。
-  if (spec.layout === 'complex' && spec.ticketSize && spec.ticketSize < spec.size) {
-    let p = 0;
-    for (const t of clean) {
-      if (t.length !== spec.size) continue;
-      p += atLeastMatchProbability(spec.size, draws, spec.ticketSize);
-    }
-    return Math.min(1, p);
-  }
   const total = binomial(49, draws);
   if (!(total > 0)) return 0;
   let favorable = 0;
@@ -1011,7 +955,7 @@ export function anyHitProbability(tickets = [], mode = 'pick3') {
  * 把「一组号码」展开成实际的注单
  *
  *   · 特码（ticketSize = 1）：每个号就是 1 注 → [[n1],[n2],…]
- *   · 三中三（ticketSize = 3）：7 码复式 → C(7,3) = 35 注
+ *   · 三中三（ticketSize = 3）：一组 3 个号 = 1 注
  *   · 四中四（ticketSize = 4）：4 码 → 1 注
  *
  * @param {number[]} numbers
@@ -1052,19 +996,16 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
   const features = computeDailyFiveFeatures(priorDraws, { year, periodNum, date });
 
   // ————————————————————————————————————————————————————————————————
-  // 「精选清单」路径（1 张卡片，号码互不重复）：
-  //   · 特码      layout = 'list'    → 12 个号 = 12 注
-  //   · 三中三    layout = 'complex' → 7 个号 = C(7,3) = 35 注（7 码复式）
-  // 四中四仍然走「5 组」骨架（每组 = 一注组合）。
+  // 「精选清单」路径（1 张卡片，号码互不重复）：只有特码走这里
+  //   特码 layout = 'list' → 12 个号 = 12 注
+  // 三中三 / 四中四都走「5 组」骨架（每组 = 一注组合）。
   // ————————————————————————————————————————————————————————————————
-  if (spec.layout === 'list' || spec.layout === 'complex') {
-    const isComplex = spec.layout === 'complex';
-    // 统计口径：特码看「作为特码出现」，三中三看「落在 6 个正码里」
-    const statsTable = isSpecial ? features.specialStats : features.stats;
-    const mean30 = isSpecial ? 30 / 49 : (30 * 6) / 49;
+  if (spec.layout === 'list') {
+    // 统计口径：特码看「作为特码出现」
+    const statsTable = features.specialStats;
+    const mean30 = 30 / 49;
     const scoreMaps = buildSpecialScoreMaps(features, year, periodNum, statsTable, mean30);
-    const picker = isComplex ? selectPick3Set : selectSpecialList;
-    const list = picker(scoreMaps, {
+    const list = selectSpecialList(scoreMaps, {
       year,
       periodNum,
       randomSalt,
@@ -1073,9 +1014,9 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     });
     const meta = catalogForMode(spec.id)[0];
     const st = features.stats;
-    const hotList = list.numbers.filter((n) => statsTable[n].freq30 >= (isComplex ? 5 : 3));
+    const hotList = list.numbers.filter((n) => statsTable[n].freq30 >= 3);
     const coldList = list.numbers.filter((n) => !hotList.includes(n)
-      && (statsTable[n].omission >= (isComplex ? 8 : 5) || statsTable[n].freq30 === 0));
+      && (statsTable[n].omission >= 5 || statsTable[n].freq30 === 0));
     const odd = list.numbers.filter((n) => statsTable[n].odd).length;
     const entry = {
       ...meta,
@@ -1084,14 +1025,12 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
       breakdown: list.breakdown,
       killed: [],
       rationale: `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}`
-        + `${isComplex ? '三中三 7 码复式' : '特码'} ${list.numbers.length} 号：`
+        + `特码 ${list.numbers.length} 号：`
         + list.breakdown.map((b) => `${b.icon}${b.numbers.length}`).join(' / ')
         + `；整体奇偶 ${odd}:${list.numbers.length - odd}、三区 `
         + `${list.numbers.filter((n) => n <= 16).length}-${list.numbers.filter((n) => n > 16 && n <= 33).length}-`
         + `${list.numbers.filter((n) => n > 33).length}`
-        + (isComplex
-          ? '；7 个号把 C(7,3) = 35 个三连组合全部买下，任意 3 个落在正码里就中'
-          : '；🎲 为 49 个号等概率机选（纯随机对照，可重摇），其余 9 个受全局均衡约束'),
+        + '；🎲 为 49 个号等概率机选（纯随机对照，可重摇），其余 9 个受全局均衡约束',
       seed: list.seed,
       shape: {
         hot: hotList.length,
@@ -1112,16 +1051,10 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     };
 
     const distinct = list.numbers.length;
-    // 每张清单折算几注：特码 1 个号 = 1 注；三中三 7 码 = C(7,3) = 35 注
-    const betsPerOption = isComplex ? combinationsCount(distinct, spec.ticketSize) : distinct;
-    // 单注命中率：一注 ticketSize 个号全部落在 6 个正码里 = C(6,k) / C(49,k)
-    // （复式不是把单注概率变大，而是买更多注）
-    const perBet = isComplex
-      ? binomial(6, spec.ticketSize) / binomial(49, spec.ticketSize)
-      : 1 / 49;
-    const anyHit = isComplex
-      ? atLeastMatchProbability(distinct, 6, spec.ticketSize)
-      : Math.min(1, distinct / 49);
+    // 清单折算几注：特码 1 个号 = 1 注
+    const betsPerOption = distinct;
+    const perBet = 1 / 49;
+    const anyHit = Math.min(1, distinct / 49);
     return {
       target: { year, periodNum, period: String(periodNum).padStart(3, '0'), date },
       priorSampleCount: priorDraws.length,
@@ -1267,7 +1200,7 @@ export function buildDailyFiveRecords(allDraws = [], targets = [], options = {})
     if (!draw) continue;
     const plan = generateDailyFive(allDraws, { year: draw.year, periodNum: draw.periodNum, date: draw.date }, { randomSalt, mode: spec.id });
     const five = plan.five.map((e) => {
-      // 复式：一组号码要展开成 C(size, ticketSize) 注分别结算（7 码 → 35 注）
+      // 一组号码展开成实际注单分别结算（特码 12 个号 = 12 注；直选 = 1 注）
       const tickets = expandEntryTickets(e.numbers, spec);
       const ev = evaluateTickets(tickets, draw, {
         stake,
@@ -1317,11 +1250,10 @@ export function buildCustomRecords(allDraws = [], targets = [], options = {}) {
   const spec = getPlayMode(options.mode);
   const size = spec.size;
   // 自选就是「1 注号码」：
-  //   特码     → 1 中 1，允许 1 ~ size 个号（每个号 1 注）
-  //   复式     → 正好 ticketSize 个号（只买这 1 注，不自动展开成 35 注）
-  //   直选分组 → 正好 size 个号
+  //   特码         → 1 中 1，允许 1 ~ size 个号（每个号 1 注）
+  //   三中三/四中四 → 正好 size 个号（3 / 4 个号）
   const picks = normalizeNumbers(options.customNumbers || [], { sort: true });
-  const expected = spec.layout === 'complex' ? (spec.ticketSize || size) : size;
+  const expected = size;
   if (spec.id === 'special') {
     if (picks.length < 1 || picks.length > size) return [];
   } else if (picks.length !== expected) {
@@ -1412,7 +1344,7 @@ export function summarizeDailyFive(records = [], options = {}) {
       agg.periods++;
       agg.hitSum += e.hitCount || 0;
       if (e.isWin) agg.winPeriods++;
-      // 注数：优先用记录里算好的实际注数（复式 35 注 / 特码 12 注 / 自选按实际号码个数）
+      // 注数：优先用记录里算好的实际注数（特码 12 注 / 直选 1 注 / 自选按实际号码个数）
       const betsThis = Number.isFinite(e.bets) && e.bets > 0
         ? e.bets
         : (spec.id === 'special'
