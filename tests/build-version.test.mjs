@@ -236,7 +236,7 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   assert.ok(html.includes('data-mode="pick3"'), '必须能切到选三');
   assert.ok(html.includes('data-mode="pick4"'), '必须能切到选四');
   assert.ok(html.includes('特码 · 12 号清单（12 注）'), '要有特码玩法标签（1 中 1，12 个号 = 12 注）');
-  assert.ok(html.includes('三中三 · 7 码复式（35 注）'), '三中三 r19 起是 7 码复式（35 注）');
+  assert.ok(html.includes('三中三 · 每组 3 号'), '三中三是每天 5 注、每组 3 个号');
   assert.ok(html.includes('四中四 · 每组 4 号'), '要有四中四玩法标签');
   // 顺序：特码 → 选三 → 选四
   assert.ok(
@@ -251,11 +251,11 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   for (const gone of ['id="comboGrid"', 'id="comboTabs"', 'id="foldCombos"', 'id="histMode"', 'id="pinnedPicks"']) {
     assert.ok(!html.includes(gone), `旧结构 ${gone} 必须移除`);
   }
-  // 页面文案：复式只允许出现在三中三（7 码 35 注），其它玩法仍不许回潮
+  // 页面文案：复式 / 35 注 / 胆码都不该出现（三中三已回到每天 5 注）
   assert.ok(!html.includes('胆码'), '页面不应再出现胆码');
-  assert.ok(!html.includes('data-mode="pick4" role="tab">四中四 · 7'), '四中四保持 5 注，不做复式');
-  // r19 新增的三处交互入口
-  assert.ok(html.includes('id="cfgStake3"'), '三中三需要单独的注金输入（复式 35 注，注金与四中四不同）');
+  assert.ok(!html.includes('35 注'), '页面不应再出现 35 注复式');
+  assert.ok(!html.includes('id="cfgStake3"'), '三种玩法共用单注本金，不再有单独的三中三本金');
+  // 交互入口：回放筛选 + 命中跳转 + 对齐凭证（r19 新增，r20 保留）
   assert.ok(html.includes('id="histFilter"'), '回放需要「只看命中」筛选');
   assert.ok(html.includes('id="btnPrevHit"') && html.includes('id="btnNextHit"'), '回放需要上一 / 下一命中跳转');
   assert.ok(html.includes('id="heroShare"'), '头部需要「对齐凭证」（期号 + 重摇次数）');
@@ -326,4 +326,27 @@ test('「一键同步」读的是仓库静态文件，同步状态必须说明�
   assert.match(app, /GitHub Actions/, '库里落后时要说明是自动任务的问题，而不是含糊地说「同步失败」');
   // 不能再用「远程源被浏览器跨域限制拦下」这种没验证过的结论
   assert.ok(!app.includes('远程源被浏览器跨域限制拦下'), '失败原因必须来自真实报错，不能猜');
+});
+
+test('页面结构 r20：一键同步置顶 + 三处折叠默认展开', () => {
+  const html = read('index.html');
+  const posSync = html.indexOf('id="sync"');
+  const posToday = html.indexOf('id="today"');
+  const posHist = html.indexOf('id="history"');
+  assert.ok(posSync > 0 && posToday > 0 && posHist > 0, '三个区块都要存在');
+  assert.ok(posSync < posToday, '「一键同步」区块必须在今日号码之前（进页面第一屏就能点）');
+  assert.ok(posToday < posHist, '今日号码仍在回放之前');
+
+  // 折叠块：数据同步 / 本金与赔率 / 版本与缓存维护 全部默认展开
+  const folds = [...html.matchAll(/<details class="fold"([^>]*)>\s*<summary>([^<]+)<\/summary>/g)];
+  assert.equal(folds.length, 3, `应只有 3 个主折叠块，实际 ${folds.length}`);
+  for (const [, attrs, title] of folds) {
+    assert.ok(/\bopen\b/.test(attrs), `「${title.trim()}」默认应展开（加 open）`);
+  }
+  // 补位工具（粘贴导入 / 本机开奖）是子折叠，默认收起：别把「今日号码」挤到第二屏
+  const sub = [...html.matchAll(/<details class="fold fold-sub"([^>]*)>\s*<summary>([^<]+)<\/summary>/g)];
+  assert.equal(sub.length, 1, '补位工具应收进 1 个子折叠');
+  assert.ok(!/\bopen\b/.test(sub[0][1]), '子折叠默认应收起');
+  assert.ok(html.indexOf('id="btnSyncNow"') < html.indexOf('id="pasteBox"'), '一键同步必须排在粘贴导入之前');
+  assert.ok(html.includes('一键同步'), '同步按钮文案要在');
 });

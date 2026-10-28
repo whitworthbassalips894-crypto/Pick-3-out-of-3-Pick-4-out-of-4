@@ -61,29 +61,17 @@ test('回归样例 2026-287：直选命中口径正确（特码不计入，号�
   assert.deepEqual(target.numbers, [19, 47, 38, 35, 6, 17]);
   assert.equal(target.special, 8);
 
-  // 四中四：4 个号 = 1 注，全中才算中
-  {
-    const rec = buildDailyFiveRecords(ALL, [target], { mode: 'pick4' })[0];
+  for (const [mode, size, odds] of [['pick3', 3, 650], ['pick4', 4, 7500]]) {
+    const rec = buildDailyFiveRecords(ALL, [target], { mode })[0];
+    assert.equal(rec.five.length, 5, `${mode} 应为 5 组`);
     for (const e of rec.five) {
       assert.ok(!e.matchedNormals.includes(target.special), '特码绝不能计入命中');
       assert.equal(e.matchedNormalCount, e.numbers.filter((n) => target.numbers.slice(0, 6).includes(n)).length);
-      assert.equal(e.isWin, e.matchedNormalCount === 4);
-      assert.equal(e.hitCount, e.isWin ? 1 : 0, '四中四一组只买 1 注');
-      assert.equal(e.payout, e.isWin ? 10 * 7500 : 0);
+      assert.equal(e.bets, 1);
+      assert.equal(e.isWin, e.matchedNormalCount === size, '号码全中才算中');
+      assert.equal(e.hitCount, e.isWin ? 1 : 0);
+      assert.equal(e.payout, e.isWin ? 10 * odds : 0);
     }
-  }
-  // 三中三：7 码复式 35 注，中 k 个正码 → 中 C(k,3) 注
-  {
-    const rec = buildDailyFiveRecords(ALL, [target], { mode: 'pick3' })[0];
-    assert.equal(rec.five.length, 1);
-    const e = rec.five[0];
-    assert.equal(e.bets, 35);
-    assert.ok(!e.matchedNormals.includes(target.special), '特码绝不能计入命中');
-    const k = e.matchedNormalCount;
-    const c3 = (n) => (n < 3 ? 0 : (n * (n - 1) * (n - 2)) / 6);
-    assert.equal(e.hitCount, c3(k), `中 ${k} 个正码应中 C(${k},3) 注`);
-    assert.equal(e.isWin, e.hitCount > 0);
-    assert.equal(e.payout, e.hitCount * 10 * 650);
   }
 });
 
@@ -129,9 +117,9 @@ test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字�
     const summary = summarizeDailyFive(records, { stake: 10, odds3: 650, odds4: 7500, oddsSpecial: 48, mode });
 
     assert.equal(summary.periods, records.length);
-    // 特码：1 张清单 × 12 注；三中三：1 张 7 码复式 × 35 注；四中四：5 组 × 每组 1 注
+    // 特码：1 张清单 × 12 注；三中三 / 四中四：5 组 × 每组 1 注
     const bets = summary.betsPerOption;
-    const groups = mode === 'pick4' ? 5 : 1;
+    const groups = mode === 'special' ? 1 : 5;
     assert.equal(summary.totalCost, records.length * groups * bets * 10);
 
     for (const agg of summary.catalog) {
@@ -140,8 +128,8 @@ test('汇总统计与逐期记录一一对应（表格数字 = 指标卡数字�
       for (const r of records) {
         const e = r.five.find((x) => x.id === agg.id);
         if (e.isWin) manualWins++;
-        // 命中「注数」：特码 / 三中三复式按实际中奖注数，四中四一组只有 1 注
-        manualBets += mode === 'pick4' ? (e.isWin ? 1 : 0) : (e.hitCount || 0);
+        // 命中「注数」：特码按实际中奖号码数，直选一组只有 1 注
+        manualBets += mode === 'special' ? (e.hitCount || 0) : (e.isWin ? 1 : 0);
       }
       assert.equal(agg.winPeriods, manualWins);
       assert.equal(agg.payout, manualBets * 10 * odds);

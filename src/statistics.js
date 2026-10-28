@@ -120,52 +120,6 @@ export function specialBaseline() {
 }
 
 /**
- * 三中三 7 码复式基线（每期 35 注）
- *
- * 玩法：选 7 个号，等于把 C(7,3) = 35 个三连组合**全部买下**。
- *   · 单注命中：3 个号全落在 6 个正码里 → P = C(6,3)/C(49,3) = 20/18424 ≈ 0.1086%
- *   · 整张复式「至少中 1 注」：7 个号里至少 3 个落在 6 个正码里（超几何分布）
- *       1 − P(k ≤ 2) = **3.095%**（≈ 1/32）
- *   · 理论公平赔率仍是 921 倍；650 倍 → 期望回报率 **70.56%**
- *
- * 关键提醒：**复式不改变返奖率**。35 注只是把同一注金重复买 35 次，
- * 命中率提高 5.7 倍、成本提高 7 倍，RTP 一分钱都没变。
- */
-export function pick3ComplexBaseline() {
-  const population = 49;
-  const draws = 6;
-  const ticketSize = 3;
-  const size = 7; // 每期选 7 个号
-  const bets = comb(size, ticketSize); // 35
-  const hitProb = comb(draws, ticketSize) / comb(population, ticketSize); // 单注 20/18424
-  const fairOdds = comb(population, ticketSize) / comb(draws, ticketSize); // 921
-  // 整张复式至少中 1 注 = 1 - P(k ≤ 2)
-  let atLeastOne = 0;
-  for (let k = ticketSize; k <= Math.min(size, draws); k++) {
-    atLeastOne += comb(size, k) * comb(population - size, draws - k) / comb(population, draws);
-  }
-  return {
-    size,
-    population,
-    draws,
-    marked: ticketSize,
-    ticketSize,
-    bets,
-    playMode: 'pick3',
-    /** 单注命中概率 */
-    hitProb,
-    /** 整张复式至少中 1 注的概率（3.095%） */
-    hitProbPerTicket: atLeastOne,
-    /** 理论公平赔率 */
-    fairOdds,
-    /** 场均中奖注数期望 */
-    expectedHits: (bets * hitProb),
-    /** 每期至少中 1 注的概率（复式已经把所有组合买满，就是 hitProbPerTicket） */
-    anyHitProb: atLeastOne
-  };
-}
-
-/**
  * 直选基线：三中三（选 3 个号）/ 四中四（选 4 个号）
  *
  * 玩法：49 选 size，开奖开出 6 个正码（平一～平六），命中 = size 个号全部落在正码里。
@@ -183,9 +137,6 @@ export function directBaseline(mode = 3) {
   if (raw === 'special' || raw === '特码' || raw === 1 || raw === '1' || raw === 5 || raw === '5') {
     return specialBaseline();
   }
-  // 三中三是 7 码复式（35 注）
-  if (raw === 'pick3') return pick3ComplexBaseline();
-
   const population = 49;
   const draws = 6;
   const marked = raw === 'pick4' || raw === 4 || raw === '4' ? 4 : 3;
