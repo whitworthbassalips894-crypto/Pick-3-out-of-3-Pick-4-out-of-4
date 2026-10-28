@@ -145,3 +145,131 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     dom.window.close();
   }
 });
+
+/* ---------------------------------------------- r19：跨设备对齐 / 回放定位 */
+
+/** 起一个干净页面并跑 app.js（每个用例一个独立 window，避免状态互相污染） */
+async function bootPage(url) {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf-8');
+  const dom = new JSDOM(html, { url, pretendToBeVisual: true });
+  const { window } = dom;
+  const saved = { window: globalThis.window, document: globalThis.document, localStorage: globalThis.localStorage };
+  globalThis.window = window;
+  globalThis.document = window.document;
+  globalThis.localStorage = window.localStorage;
+  globalThis.HTMLElement = window.HTMLElement;
+  globalThis.Event = window.Event;
+  window.__SKIP_AUTO_SYNC__ = true;
+  const errors = [];
+  window.addEventListener('error', (e) => errors.push(String(e.message)));
+  await import(`${path.join(ROOT, 'src', 'app.js')}?smoke=${Date.now()}-${Math.random()}`);
+  const doc = window.document;
+  const text = (id) => doc.getElementById(id)?.textContent?.trim() || '';
+  const balls = () => [...doc.querySelectorAll('#fiveGrid .fc-balls .lotto-ball')]
+    .map((el) => Number(el.textContent.replace(/[^0-9]/g, '').slice(0, 2)));
+  const restore = () => {
+    globalThis.window = saved.window;
+    globalThis.document = saved.document;
+    globalThis.localStorage = saved.localStorage;
+    dom.window.close();
+  };
+  return { window, doc, text, balls, errors, restore };
+}
+
+test('三中三 7 码复式：1 张卡片、7 个号、35 注，中 k 个正码中 C(k,3) 注', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
+  const target = INITIAL_DB.draws.find((d) => d.id === '2026-287');
+  const page = await bootPage(`https://example.com/?p=2026-287&salt=0&m=pick3`);
+  try {
+    const { doc, text, balls } = page;
+    assert.equal(doc.querySelectorAll('#fiveGrid .five-card').length, 1, '三中三只有 1 张复式卡片');
+    assert.ok(doc.querySelector('#fiveGrid .five-card.is-complex'), '三中三卡片要有 is-complex 类（7 个号自然换行）');
+    const nums = balls();
+    assert.equal(nums.length, 7, `7 码复式应有 7 个号，实际 ${nums.length}`);
+    assert.equal(new Set(nums).size, 7, '7 个号不能重复');
+    const zones = [nums.filter((n) => n <= 16).length, nums.filter((n) => n > 16 && n <= 33).length, nums.filter((n) => n > 33).length];
+    assert.deepEqual(zones, [3, 2, 2], `三区应 3-2-2，实际 ${zones.join('-')}`);
+    assert.equal(nums.filter((n) => n % 2 === 1).length, 4, '奇偶应 4:3');
+    assert.ok((text('featuredCostLine') || '').includes('35 注'), '注数说明要写 35 注');
+    assert.ok((text('heroMeta') || '').includes('35 注'), '头部说明要写 35 注');
+
+    // 结算口径：命中注数 = C(命中正码数, 3)
+    const hits = nums.filter((n) => target.numbers.includes(n)).length;
+    const expectWins = hits < 3 ? 0 : (hits * (hits - 1) * (hits - 2)) / 6;
+    assert.ok(text('heroResult').includes(`命中注数${expectWins} / 35`), `结算口径错误：${text('heroResult')}`);
+    assert.equal(doc.querySelectorAll('#fiveGrid .fc-legend .legend-item').length, 4, '图例应有 4 个风格');
+  } finally {
+    page.restore();
+  }
+});
+
+test('跨设备对齐：网址里的 p / salt / m 决定同一张号码，重摇会写回网址', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
+  const page = await bootPage('https://example.com/?p=2026-290&salt=3&m=pick3');
+  try {
+    const { window, doc, text, balls } = page;
+    assert.equal(doc.querySelector('#periodSelect').value, '2026-290', '期号要跟着网址走');
+    assert.ok(doc.querySelector('.five-card.is-complex'), '玩法要跟着网址切到三中三');
+    assert.ok(text('heroShare').includes('🎲#3'), `对齐标签应显示重摇次数：${text('heroShare')}`);
+    const first = balls().join(',');
+
+    // 点「对齐凭证」= 复制当前链接；重摇后 salt 必须写回网址
+    doc.getElementById('btnRerollRandom').dispatchEvent(new window.Event('click', { bubbles: true }));
+    assert.ok(window.location.search.includes('salt=4'), `重摇后网址应更新 salt：${window.location.search}`);
+    assert.ok(text('heroShare').includes('🎲#4'), '对齐标签要同步更新');
+    assert.notEqual(balls().join(','), first, '重摇必须换掉 🎲 号码');
+
+    // 同一个网址（salt=4）重新打开 → 号码必须完全一致
+    const again = await bootPage('https://example.com/?p=2026-290&salt=4&m=pick3');
+    try {
+      assert.equal(again.balls().join(','), balls().join(','), '同一网址在两台设备上必须是同一张号码');
+    } finally {
+      again.restore();
+    }
+  } finally {
+    page.restore();
+  }
+});
+
+test('回放定位：只看命中 / 只看部分命中 + 上一/下一命中能高亮到那一行', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
+  const page = await bootPage('https://example.com/?m=special');
+  try {
+    const { window, doc, text } = page;
+    const rows = () => doc.querySelectorAll('#histBody tr[data-draw-id]').length;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if ((text('replayStatus') || '').includes('已回放')) break;
+    }
+    const all = rows();
+    assert.ok(all > 0, '回放没有渲染任何行');
+
+    const filter = doc.getElementById('histFilter');
+    assert.ok(filter, '必须有回放筛选下拉');
+    filter.value = 'hit';
+    filter.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    const onlyHit = rows();
+    assert.ok(onlyHit > 0 && onlyHit <= all, `只看命中应筛掉未中的期，实际 ${onlyHit} / ${all}`);
+    assert.ok(text('histCount').includes('已筛选'), '筛选后要说明「已筛选」');
+
+    filter.value = 'partial';
+    filter.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(rows() >= onlyHit, '部分命中应比只看命中多');
+
+    doc.getElementById('btnNextHit').dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 300));
+    const flashed = doc.querySelectorAll('#histBody tr.row-flash').length;
+    assert.equal(flashed, 1, '跳转后应高亮一行（.row-flash）');
+
+    // 四中四命中极少：「只看命中」必须是空表 + 明确提示，而不是一片空白
+    doc.querySelector('[data-mode="pick4"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 800));
+    filter.value = 'hit';
+    filter.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    const bodyText = doc.getElementById('histBody').textContent || '';
+    assert.ok(bodyText.includes('一期都没中奖') || rows() > 0, `空表也要有提示，实际：${bodyText.slice(0, 40)}`);
+    assert.deepEqual(page.errors, [], `页面运行报错：${page.errors.join(' | ')}`);
+  } finally {
+    page.restore();
+  }
+});

@@ -289,6 +289,11 @@ b { font-weight: 800; }
 @media (min-width: 720px) {
   .five-card.is-list .fc-balls { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 }
+/* 三中三 7 码复式：7 个号自然换行（4 列网格会留 1 个孤零零的球） */
+.five-card.is-complex .fc-balls {
+  display: flex; flex-wrap: wrap; gap: 8px 6px;
+  width: 100%; flex: 1 1 100%; justify-content: flex-start;
+}
 .fc-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 2px;
   padding-top: 10px; border-top: 1px dashed var(--line);
@@ -298,6 +303,18 @@ b { font-weight: 800; }
 .legend-item b { color: var(--ink); font-weight: 800; letter-spacing: 0.5px; }
 .legend-item.is-random b { color: var(--muted); }
 .legend-note { color: var(--faint); margin-left: auto; }
+/* 「对齐凭证」标签：点一下复制分享链接 */
+#heroShare { cursor: pointer; }
+/* 复式中奖组合（点开看哪几注中了） */
+.fc-combos { flex-basis: 100%; font-size: 0.74rem; color: var(--muted); }
+.fc-combos summary { cursor: pointer; color: var(--gold-deep); font-weight: 700; }
+.fc-combos div { margin-top: 4px; line-height: 1.7; word-break: break-all; }
+/* 「上一 / 下一命中」跳转后的高亮 */
+@keyframes rowFlash {
+  from { background: #fff6d6; }
+  to { background: transparent; }
+}
+tr.row-flash > td { animation: rowFlash 1.6s ease-out; }
 .fc-win { flex-basis: 100%; font-size: 0.72rem; color: var(--gold-deep); font-weight: 700; line-height: 1.6; }
 .fc-sub-title { font-size: 0.74rem; font-weight: 800; }
 .fc-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: auto; }

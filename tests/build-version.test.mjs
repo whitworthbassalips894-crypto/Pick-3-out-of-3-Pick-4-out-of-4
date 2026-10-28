@@ -208,12 +208,14 @@ test('回放详情不依赖 globalThis.CSS（老 WebView 没有 CSS.escape）', 
   assert.ok(!code.includes('CSS.escape'), '不能用 CSS.escape，应改用 dataset 比对定位行');
 });
 
-test('回放不再有已下线的筛选维度（年份 / 命中 / 搜索 / 自选方案）', () => {
+test('回放筛选只剩「范围 + 是否命中」两项（年份 / 搜索 / 自选方案保持下线）', () => {
   const app = read('src/app.js');
-  for (const dead of ['applyReplayFilters', 'filters.hit', 'filters.q', 'filters.strategy', 'replay.filters.year']) {
+  for (const dead of ['applyReplayFilters', 'filters.q', 'filters.strategy', 'replay.filters.year']) {
     assert.ok(!app.includes(dead), `回放里仍残留已下线的筛选逻辑：${dead}`);
   }
-  assert.ok(app.includes("filters: {\n    range: '120'"), '回放筛选状态应只剩「范围」一项');
+  // r19 重新引入了「只看命中 / 只看部分命中」，用来快进到有反应的那一期
+  assert.ok(app.includes('replay.filters.hit'), '回放需要「命中筛选」状态（只看命中 / 只看部分命中）');
+  assert.ok(app.includes("filters: {\n    range: '120'"), '回放筛选状态第一项仍是「范围」');
 });
 
 test('Service Worker 的外壳清单覆盖 app.js 的全部本地依赖（离线可用）', () => {
@@ -234,7 +236,7 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   assert.ok(html.includes('data-mode="pick3"'), '必须能切到选三');
   assert.ok(html.includes('data-mode="pick4"'), '必须能切到选四');
   assert.ok(html.includes('特码 · 12 号清单（12 注）'), '要有特码玩法标签（1 中 1，12 个号 = 12 注）');
-  assert.ok(html.includes('三中三 · 每组 3 号'), '要有三中三玩法标签');
+  assert.ok(html.includes('三中三 · 7 码复式（35 注）'), '三中三 r19 起是 7 码复式（35 注）');
   assert.ok(html.includes('四中四 · 每组 4 号'), '要有四中四玩法标签');
   // 顺序：特码 → 选三 → 选四
   assert.ok(
@@ -249,9 +251,14 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   for (const gone of ['id="comboGrid"', 'id="comboTabs"', 'id="foldCombos"', 'id="histMode"', 'id="pinnedPicks"']) {
     assert.ok(!html.includes(gone), `旧结构 ${gone} 必须移除`);
   }
-  // 页面文案里不该再出现复式 / 35 注
-  assert.ok(!html.includes('35 注'), '页面不应再出现 35 注复式');
+  // 页面文案：复式只允许出现在三中三（7 码 35 注），其它玩法仍不许回潮
   assert.ok(!html.includes('胆码'), '页面不应再出现胆码');
+  assert.ok(!html.includes('data-mode="pick4" role="tab">四中四 · 7'), '四中四保持 5 注，不做复式');
+  // r19 新增的三处交互入口
+  assert.ok(html.includes('id="cfgStake3"'), '三中三需要单独的注金输入（复式 35 注，注金与四中四不同）');
+  assert.ok(html.includes('id="histFilter"'), '回放需要「只看命中」筛选');
+  assert.ok(html.includes('id="btnPrevHit"') && html.includes('id="btnNextHit"'), '回放需要上一 / 下一命中跳转');
+  assert.ok(html.includes('id="heroShare"'), '头部需要「对齐凭证」（期号 + 重摇次数）');
 });
 
 /* ------------------------------------------------- 自动同步 workflow 的位置 */
