@@ -350,3 +350,45 @@ test('页面结构 r20：一键同步置顶 + 三处折叠默认展开', () => {
   assert.ok(html.indexOf('id="btnSyncNow"') < html.indexOf('id="pasteBox"'), '一键同步必须排在粘贴导入之前');
   assert.ok(html.includes('一键同步'), '同步按钮文案要在');
 });
+
+test('同步 workflow：高密度触发 + 门控秒退 + 测试放在提交之后', () => {
+  const yml = fs.readFileSync(path.join(ROOT, 'ci', 'sync-draws.yml'), 'utf-8');
+
+  // ① 抓取窗口：北京时间 21:00–23:55 每 5 分钟一次（UTC 13-15 点）
+  assert.match(yml, /cron:\s*'\*\/5 13-15 \* \* \*'/, '缺少 5 分钟一次的高密度抓取窗口');
+  assert.match(yml, /cron:\s*'\d+ 16 \* \* \*'/, '缺少跨零点的兜底抓取');
+  // 不能只剩三次（旧版就是因为三次全错过才要等第二天）
+  const crons = [...yml.matchAll(/cron:\s*'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(crons.length >= 3, `触发次数太少：${crons.join(', ')}`);
+  assert.ok(crons.some((c) => c.includes('*/5')), '必须有高频窗口');
+
+  // ② 门控：已经有今天这期就秒退，不跑测试不提交
+  assert.match(yml, /sync_latest\.mjs --gate-only/, '缺少门控步骤');
+  assert.match(yml, /steps\.gate\.outputs\.need == 'true'/, '同步步骤必须受门控控制');
+
+  // ③ 顺序：npm test 必须在「Fetch and merge」之后（数据先落地，测试不能挡数据）
+  const posFetch = yml.indexOf('Fetch and merge latest draws');
+  const posTest = yml.indexOf('npm test');
+  assert.ok(posFetch > 0 && posTest > 0, '缺少抓取或测试步骤');
+  assert.ok(posFetch < posTest, 'npm test 必须排在抓取之后，否则测试飘红会把当天数据卡死');
+  assert.match(yml, /continue-on-error: true[\s\S]{0,300}npm test/, '测试失败不应中断同步');
+
+  // ④ push 要有重试
+  assert.match(yml, /for i in 1 2 3/, 'push 失败必须重试（rebase 撞车时整次作废）');
+
+  // ⑤ 时区：新鲜度必须按北京时间算，不能用 UTC
+  assert.match(yml, /Asia\/Shanghai/, '新鲜度检查必须固定北京时间');
+  assert.ok(!/toISOString\(\)\.slice\(0, 10\)/.test(yml), '不能用 UTC 的日期当「今天」');
+});
+
+test('同步脚本：自愈能力（门控 / 等待 / 校验 / 先提交）都在代码里，不依赖 workflow 定时', () => {
+  const script = read('scripts/sync_latest.mjs');
+  // 这些是「拿不到当天开奖」的根治手段，必须在脚本里而不是只在 yml 里
+  assert.match(script, /gateOnly/, '必须有门控模式');
+  assert.match(script, /isPastDeadline/, '必须有等待截止逻辑');
+  assert.match(script, /daysInYear|todayInShanghai/, '必须按北京时间算目标期');
+  assert.match(script, /validateDatabase/, '写库前必须校验');
+  assert.match(script, /commitAndPush/, '必须由脚本自己提交（绕过 workflow 的「测试后才提交」）');
+  assert.match(script, /Math\.pow\(2, retries - remaining\)/, '抓取重试必须指数退避');
+  assert.match(script, /\['pull', '--rebase', '--autostash'/, 'push 前必须 rebase');
+});

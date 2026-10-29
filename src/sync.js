@@ -231,8 +231,8 @@ export function describeSourceLag(localLatest, todayIso, options = {}) {
   const hint = lagPeriods === 0
     ? ''
     : stale
-      ? '仓库文件 data/draws.json 靠 GitHub Actions 每日自动抓取更新，请确认 Actions 里的 sync-draws 是否运行成功'
-      : '今天的开奖可能还没公布';
+      ? '仓库文件 data/draws.json 靠 GitHub Actions 每天 21:45 起自动抓取（会一直重试到 23:55），App 抓每次都会自动等；若连续落后超过 1 天，请到 Actions 看 sync-draws 是否报错'
+      : '今天的开奖通常在北京时间 21:40 之后公布，还没到点或上游还没放榜';
 
   return {
     ok: true,
@@ -246,4 +246,35 @@ export function describeSourceLag(localLatest, todayIso, options = {}) {
     base,
     hint
   };
+}
+
+/**
+ * 从站点地址推导「仓库原始文件」地址，用于绕过 GitHub Pages 的重新构建延迟
+ *
+ * Pages 每次提交后要重新构建（通常 30~90 秒，偶尔更久），这期间页面读到的
+ * data/draws.json 还是旧的 —— 用户会以为「同步没生效」。raw.githubusercontent.com
+ * 直接读仓库文件，提交后几秒就能拿到，作为兜底源很合适（它带 CORS 头，
+ * 浏览器可以直接 fetch）。
+ *
+ * 只在 GitHub Pages 的 project 站点上推导：
+ *   https://<user>.github.io/<repo>/... → https://raw.githubusercontent.com/<user>/<repo>/main/data/draws.json
+ * 本地 / 自建域名无法推导，返回空串（此时只读同目录的静态文件）。
+ *
+ * @param {string} locationLike 一般是 window.location.href
+ * @param {string} [branch='main']
+ * @returns {string} 推导不出来时返回 ''
+ */
+export function rawGithubDbUrl(locationLike, branch = 'main') {
+  try {
+    const u = new URL(String(locationLike || ''));
+    if (!/\.github\.io$/i.test(u.hostname)) return '';
+    const segments = u.pathname.split('/').filter(Boolean);
+    if (!segments.length) return ''; // 用户主页站点（<user>.github.io/）不是 project pages
+    const user = u.hostname.split('.')[0];
+    const repo = segments[0];
+    if (!user || !repo) return '';
+    return `https://raw.githubusercontent.com/${user}/${repo}/${branch}/data/draws.json`;
+  } catch {
+    return '';
+  }
 }
