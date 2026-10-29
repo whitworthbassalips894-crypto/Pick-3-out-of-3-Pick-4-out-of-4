@@ -145,14 +145,22 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(window.document.querySelectorAll('#histBody tr.feat-detail').length, 1, '再点一次应重新展开');
 
-    // —— 回归：重摇随机注后，回放里的 #1 也要跟着变 ——
-    const detailText = () => window.document.querySelector('#histBody tr.feat-detail')?.textContent || '';
-    const beforeReroll = detailText();
-    window.document.getElementById('btnRerollRandom')
-      .dispatchEvent(new window.Event('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 1200));
-    assert.notEqual(detailText(), beforeReroll, '重摇后回放里的随机注没有更新');
-    assert.ok(text('replayStatus').includes('已回放'), `重摇后回放未完成：${text('replayStatus')}`);
+    // —— r25：重摇下线。页面上不能再有任何重摇入口 ——
+    for (const gone of ['btnRerollRandom', 'btnResetRandom']) {
+      assert.equal(window.document.getElementById(gone), null, `重摇入口 ${gone} 必须移除`);
+    }
+    assert.ok(!window.document.body.textContent.includes('重摇'), '页面不该再出现「重摇」字样');
+    // 摇到什么就是什么：同一期重新打开，号码必须一模一样
+    const heroNums = () => [...window.document.querySelectorAll('#fiveGrid .fc-balls .lotto-ball')]
+      .map((el) => Number(el.textContent.replace(/[^0-9]/g, '').slice(0, 2))).join(',');
+    const firstBalls = heroNums();
+    const again = await bootPage('https://example.com/?m=special');
+    try {
+      await new Promise((r) => setTimeout(r, 600));
+      assert.equal(again.balls().join(','), firstBalls, '同一期重开必须是同一组号（不可重摇）');
+    } finally {
+      again.restore();
+    }
 
     assert.deepEqual(errors, [], `页面运行报错：${errors.slice(0, 3).join(' | ')}`);
   } finally {
@@ -219,23 +227,18 @@ test('三中三回到每天 5 注：5 张卡片 × 每组 3 个号，全中才�
   }
 });
 
-test('跨设备对齐：网址里的 p / salt / m 决定同一张号码，重摇会写回网址', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
+test('跨设备对齐：网址里的 p / m 决定同一张号码；旧链接的 salt 被忽略并清掉', { skip: !hasJsdom && '未安装 jsdom（可选依赖）' }, async () => {
+  // 旧链接带 salt=3：页面必须按 salt=0 出号，并把 salt 从地址栏清掉
   const page = await bootPage('https://example.com/?p=2026-290&salt=3&m=pick3');
   try {
     const { window, doc, text, balls } = page;
     assert.equal(doc.querySelector('#periodSelect').value, '2026-290', '期号要跟着网址走');
     assert.equal(doc.querySelectorAll('#fiveGrid .five-card').length, 5, '玩法要跟着网址切到三中三（5 组）');
-    assert.ok(text('heroShare').includes('🎲#3'), `对齐标签应显示重摇次数：${text('heroShare')}`);
-    const first = balls().join(',');
+    assert.ok(!text('heroShare').includes('🎲#'), `对齐标签不该再有重摇次数：${text('heroShare')}`);
+    assert.ok(!window.location.search.includes('salt='), `网址里的 salt 应被清掉：${window.location.search}`);
 
-    // 点「对齐凭证」= 复制当前链接；重摇后 salt 必须写回网址
-    doc.getElementById('btnRerollRandom').dispatchEvent(new window.Event('click', { bubbles: true }));
-    assert.ok(window.location.search.includes('salt=4'), `重摇后网址应更新 salt：${window.location.search}`);
-    assert.ok(text('heroShare').includes('🎲#4'), '对齐标签要同步更新');
-    assert.notEqual(balls().join(','), first, '重摇必须换掉 🎲 号码');
-
-    // 同一个网址（salt=4）重新打开 → 号码必须完全一致
-    const again = await bootPage('https://example.com/?p=2026-290&salt=4&m=pick3');
+    // 同一个期号 + 玩法，另一台设备打开（不带参数，用下拉挑到同一期）→ 号码必须一致
+    const again = await bootPage('https://example.com/?p=2026-290&m=pick3');
     try {
       assert.equal(again.balls().join(','), balls().join(','), '同一网址在两台设备上必须是同一张号码');
     } finally {

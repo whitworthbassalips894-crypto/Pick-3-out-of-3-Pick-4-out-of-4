@@ -1,7 +1,7 @@
 /**
  * 「每日 5 注」引擎单测
  * 模式参考 https://whitworthbassalips894-crypto.github.io/lottery-tool/
- *   #1 🎲 随机基线（纯随机对照，可重摇） + #2~#5 精选
+ *   #1 🎲 随机基线（纯随机对照，一期一摇） + #2~#5 精选
  *
  * 三种玩法（playMode）：
  *   special 特码：**一张 12 号清单**（1 个号 = 1 注，共 12 注），
@@ -186,7 +186,7 @@ test('4 注精选之间互不重叠；随机注不受限制（可以有重叠）
   }
 });
 
-test('特码清单里的 🎲 随机号：纯 49 选 3，覆盖均匀，且重摇只动这 3 个号', () => {
+test('特码清单里的 🎲 随机号：纯 49 选 3，覆盖均匀；salt 只影响这 3 个号（页面恒传 0）', () => {
   // 统计 200 期里每个号被随机抽中的次数，应当接近 200×3/49 ≈ 12.2
   const hits = new Array(50).fill(0);
   for (const d of ALL.slice(1, 201)) {
@@ -206,11 +206,11 @@ test('特码清单里的 🎲 随机号：纯 49 选 3，覆盖均匀，且重�
   const avg = sum / 49;
   assert.ok(avg > 10 && avg < 15, `随机均值异常：${avg.toFixed(2)}`);
 
-  // 重摇只影响 🎲 三个号，精选 9 个号不动
+  // salt 只影响 🎲 三个号，精选 9 个号不动（页面已不提供重摇，这里只验证确定性）
   const base = generateDailyFive(ALL, TARGET, { mode: 'special', randomSalt: 0 });
   const rerolled = generateDailyFive(ALL, TARGET, { mode: 'special', randomSalt: 3 });
   const rand = (p) => (p.five[0].breakdown.find((b) => b.id === 'random') || {}).numbers || [];
-  assert.notDeepEqual(rand(base), rand(rerolled), '重摇必须换掉随机号');
+  assert.notDeepEqual(rand(base), rand(rerolled), '不同 salt 应得到不同的随机号（确定性验证）');
   assert.notDeepEqual(base.five[0].numbers, rerolled.five[0].numbers);
 });
 

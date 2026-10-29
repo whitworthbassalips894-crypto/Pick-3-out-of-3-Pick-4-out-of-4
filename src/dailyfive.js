@@ -15,7 +15,7 @@
  *   三中三 → 5 组骨架，每组 3 个号 = 1 注（与四中四同一套分工）。
  *
  * 直选 5 组分工（风格不同，概率相同）：
- *   #1 🎲 完全随机  **纯 49 选 size 等概率机选**，允许与精选重复（对照组，可重摇）
+ *   #1 🎲 完全随机  **纯 49 选 size 等概率机选**，允许与精选重复（对照组，一期一摇，不可重摇）
  *   #2 🔥 热号      近 30 期出现次数最多的号（顺势风格）
  *   #3 🎯 冷号      遗漏最久的号（回补风格）
  *   #4 ⚖️ 形态均衡  和值靠近理论均值，奇偶 / 大小 / 三区均衡
@@ -26,7 +26,7 @@
  * 「至少中 1 注」的概率按实际号码用容斥公式精确计算（见 anyHitProbability），不靠假设。
  *
  * 严格无未来函数：第 T 期的 5 组只用严格早于 T 期的正码 / 特码数据。
- * 确定性：同一期 + 同一重摇盐值 + 同一玩法 → 永远得到同一组号码。
+ * 确定性：同一期 + 同一玩法 → 永远得到同一组号码（页面不提供重摇，摇到什么就是什么）。
  */
 
 import { ALL_NUMBERS, PLAY_MODES, betsPerTicket, getColorForNumber, getPlayMode, getZodiacForNumber } from './constants.js';
@@ -41,7 +41,7 @@ export const DAILY_FIVE_CATALOG = [
     name: '完全随机',
     icon: '🎲',
     random: true,
-    description: '从 01–49 等概率机选（纯随机对照，允许与精选重复，可重摇）'
+    description: '从 01–49 等概率机选（纯随机对照，允许与精选重复）'
   },
   {
     id: 'hot',
@@ -607,13 +607,13 @@ function buildCoverScoreMap(used = new Set(), baseMap = {}) {
  * 特码沿用分组只会让人误以为每组是个整体。
  *
  * 12 个号的分工（合计 = 12 注）：
- *   🎲 完全随机  3 个  49 选 3 等概率机选，纯对照，可重摇
+ *   🎲 完全随机  3 个  49 选 3 等概率机选，纯对照，一期一摇
  *   🔥 热号      3 个  近 30 / 60 期作为特码最活跃
  *   🎯 冷号      2 个  作为特码遗漏最久
  *   ⚖️ 形态均衡  4 个  补齐全局奇偶 / 大小 / 三区 / 尾数
  */
 export const SPECIAL_LIST_STYLES = [
-  { id: 'random', count: 3, icon: '🎲', name: '完全随机', description: '49 个号等概率机选（纯随机对照，可重摇）' },
+  { id: 'random', count: 3, icon: '🎲', name: '完全随机', description: '49 个号等概率机选（纯随机对照，一期一摇）' },
   { id: 'hot', count: 3, icon: '🔥', name: '热号', description: '近 30 / 60 期作为特码最活跃的号' },
   { id: 'cold', count: 2, icon: '🎯', name: '冷号', description: '作为特码遗漏最久的号' },
   { id: 'balance', count: 4, icon: '⚖️', name: '形态均衡', description: '补齐奇偶 / 大小 / 三区 / 尾数，让整张清单均衡' }
@@ -706,13 +706,14 @@ function residualModel(randomNums, size, idealModel = SPECIAL_IDEAL_MODEL) {
  * 生成一张「风格化号码清单」（特码 12 号清单）
  *
  * 步骤：
- *   1. 🎲 用「期号 + 盐值」定种，49 选 N 等概率机选随机号（纯随机，不排除任何号，可重摇）
+ *   1. 🎲 用「期号」定种，49 选 N 等概率机选随机号（纯随机，不排除任何号，不可重摇）
  *   2. 按「理想分区模型 − 随机号已占的子区」算出剩下几个号的子区目标
  *   3. 在每个子区里按综合分（热 / 冷 / 温号）取号，并保证奇偶合计达标、同尾最多 2 个
  *   4. 给精选号贴风格标签：最热的 🔥、最冷的 🎯、剩下 ⚖️
  *
  * 随机号先选、精选避开它 → 整张清单的号码天然互不重复，不浪费任何一注。
- * 严格无未来函数：只用严格早于目标期的历史；同一期 + 同一盐值永远得到同一张清单。
+ * 严格无未来函数：只用严格早于目标期的历史；同一期永远得到同一张清单。
+ * 页面不提供重摇：randomSalt 恒为 0（保留该参数只是为了内部测试与确定性验证）。
  *
  * @param {{ hot: Record<number,number>, cold: Record<number,number>, balance: Record<number,number> }} scoreMaps
  * @param {{ year?: number, periodNum?: number, randomSalt?: number, size?: number, pinnedNumbers?: number[],
@@ -978,6 +979,7 @@ export function expandEntryTickets(numbers = [], spec = {}) {
  * @param {object[]} allDraws 完整底库（降序）
  * @param {{ year?: number, periodNum?: number, date?: string }} [targetMeta]
  * @param {{ randomSalt?: number, mode?: string, pinnedNumbers?: number[] }} [options]
+ *        randomSalt: 页面恒传 0（一期一摇，摇到什么就是什么）
  *        mode: 'special' = 特码（每注 1 个号，1 中 1：命中 = 特码正好等于这个号）
  *              'pick3'   = 三中三（每注 3 个号，全部落在 6 正码里）
  *              'pick4'   = 四中四（每注 4 个号，全部落在 6 正码里）
@@ -1024,13 +1026,12 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
       styles: Object.fromEntries(list.styles),
       breakdown: list.breakdown,
       killed: [],
-      rationale: `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}`
-        + `特码 ${list.numbers.length} 号：`
+      rationale: `特码 ${list.numbers.length} 号：`
         + list.breakdown.map((b) => `${b.icon}${b.numbers.length}`).join(' / ')
         + `；整体奇偶 ${odd}:${list.numbers.length - odd}、三区 `
         + `${list.numbers.filter((n) => n <= 16).length}-${list.numbers.filter((n) => n > 16 && n <= 33).length}-`
         + `${list.numbers.filter((n) => n > 33).length}`
-        + '；🎲 为 49 个号等概率机选（纯随机对照，可重摇），其余 9 个受全局均衡约束',
+        + '；🎲 为 49 个号等概率机选（一期一摇），其余 9 个受全局均衡约束',
       seed: list.seed,
       shape: {
         hot: hotList.length,
@@ -1111,7 +1112,7 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
 
   // #1 完全随机：**纯 49 选 size**，等概率机选，不排除任何号码。
   // 随机就应该是随机的：与精选撞号就撞号（任何 size 个号的命中概率都是同一个数）。
-  // 仍按期号 + 盐值定种，保证同一期可复现、可重摇。
+  // 按期号定种：同一期永远同一组号，摇到什么就是什么（页面没有重摇入口）。
   const rng = mulberry32(seedFor(year, periodNum, randomSalt));
   picks.set('random', shuffledNumbers(rng, size).sort((a, b) => a - b));
 
@@ -1120,7 +1121,7 @@ export function generateDailyFive(allDraws = [], targetMeta = {}, options = {}) 
     numbers: picks.get(meta.id) || [],
     killed: [],
     rationale: meta.id === 'random'
-      ? `${randomSalt > 0 ? `已重摇第 ${randomSalt} 次 · ` : ''}49 个号等概率机选（允许与精选重复）`
+      ? '49 个号等概率机选（允许与精选重复）'
       : meta.description,
     seed: meta.id === 'random' ? seedFor(year, periodNum, randomSalt) : null
   }));

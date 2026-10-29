@@ -56,7 +56,6 @@ const state = {
   allDraws: [],
 
   periodKey: 'NEXT', // 'NEXT' 或 draw.id（如 '2026-296'）
-  randomSalt: 0, // 随机注的重摇次数（0 = 默认随机）
 
   customPicks: [], // 旧版自选号码：本页已不再使用，仅为兼容历史存储保留
   pinnedPicks: [],
@@ -266,13 +265,13 @@ function drawBallsHtml(draw, opts = {}) {
 /* ==================== 跨设备对齐（URL 分享参数） ==================== */
 
 /**
- * 手机上重摇 3 次、PC 上还是第 0 次 → 两边看到不同的 🎲 号码，这是最容易吵架的一处。
+ * 号码由系统定：同一期 + 同一玩法，永远是同一组号，页面上没有任何「重摇」入口。
  *
- * 解决办法：把「期号 + 重摇次数 + 玩法」写进网址，分享同一链接就得到同一张号码。
- *   ?p=2026-300&salt=3&m=pick3
- * 只做显示层同步，不改变任何选号算法（同一期 + 同一盐值 = 同一张号码，本来就成立）。
+ * 网址只带「期号 + 玩法」，分享同一链接就得到同一张号码：
+ *   ?p=2026-300&m=pick3
+ * （旧链接里的 salt 参数会被忽略并清掉 —— 那套重摇机制已经下线。）
  */
-const URL_KEYS = { period: 'p', salt: 'salt', mode: 'm' };
+const URL_KEYS = { period: 'p', mode: 'm' };
 
 /**
  * 打开页面时套用网址参数（优先级高于本机存储）
@@ -281,14 +280,12 @@ const URL_KEYS = { period: 'p', salt: 'salt', mode: 'm' };
 function applyShareParams() {
   const shared = readShareParams();
   if (shared.mode) state.config.playMode = shared.mode;
-  if (typeof shared.salt === 'number') state.randomSalt = shared.salt;
   if (shared.period) {
     const exists = shared.period === 'NEXT' || state.allDraws.some((d) => d.id === shared.period);
     state.periodKey = exists ? shared.period : 'NEXT';
   }
-  if (shared.mode || typeof shared.salt === 'number' || shared.period) {
+  if (shared.mode || shared.period) {
     saveConfig();
-    saveRandomSalt();
     writeShareParams();
   }
 }
@@ -299,10 +296,8 @@ function readShareParams() {
   try {
     const q = new URLSearchParams(window.location.search || '');
     const p = q.get(URL_KEYS.period);
-    const salt = q.get(URL_KEYS.salt);
     const m = q.get(URL_KEYS.mode);
     if (p && /^(NEXT|\d{4}-\d{1,3})$/.test(p)) out.period = p;
-    if (salt != null && Number.isFinite(Number(salt)) && Number(salt) >= 0) out.salt = Math.floor(Number(salt));
     if (m === 'special' || m === 'pick3' || m === 'pick4') out.mode = m;
   } catch (err) {
     console.warn('[share] 网址参数解析失败', err);
@@ -319,7 +314,7 @@ function writeShareParams() {
   try {
     const q = new URLSearchParams(window.location.search || '');
     q.set(URL_KEYS.period, state.periodKey);
-    q.set(URL_KEYS.salt, String(state.randomSalt || 0));
+    q.delete('salt'); // 旧链接里的重摇次数直接清掉，避免看起来还能重摇
     q.set(URL_KEYS.mode, playMode());
     window.history.replaceState(null, '', `${window.location.pathname}?${q.toString()}${window.location.hash || ''}`);
   } catch (err) {
@@ -327,16 +322,15 @@ function writeShareParams() {
   }
 }
 
-/** 头部显示「对齐凭证」：期号 + 重摇次数 + 本机底库最新期，两边一对就知道差在哪 */
+/** 头部显示「对齐凭证」：期号 + 本机底库最新期，两边一对就知道差在哪 */
 function renderShareTag() {
   const el = $('heroShare');
   if (!el) return;
   const latest = state.allDraws[0];
-  const salt = state.randomSalt || 0;
   el.hidden = false;
-  el.textContent = `${state.periodKey === 'NEXT' ? '下一期' : state.periodKey} · 🎲#${salt}`
+  el.textContent = `${state.periodKey === 'NEXT' ? '下一期' : state.periodKey}`
     + (latest ? ` · 本机底库 ${latest.id}` : '');
-  el.title = '把这个网址分享给另一台设备，就能拿到完全相同的号码（期号 + 重摇次数 + 玩法都写在网址里）';
+  el.title = '号码由系统按「期号 + 玩法」生成，谁打开都一样；点一下复制当前网址';
 }
 
 /* ==================== 存储与数据 ==================== */
@@ -358,7 +352,6 @@ function loadSavedState() {
     saveCustomPicks();
     console.info(`[storage] 自选号码已按${modeName(size)}收敛为 ${size} 个`);
   }
-  state.randomSalt = persisted.randomSalt || 0;
   state.storageErrors = persisted.errors || [];
   if (persisted.migrations.length) {
     persistMigratedState(window.localStorage, persisted);
@@ -376,10 +369,6 @@ function saveLocalDraws() {
 function saveCustomPicks() {
   safeSet(window.localStorage, STORAGE_KEYS.CUSTOM_PICKS, { picks: state.customPicks, pinned: state.pinnedPicks });
 }
-function saveRandomSalt() {
-  safeSet(window.localStorage, STORAGE_KEYS.RANDOM_SALT, state.randomSalt);
-}
-
 function rebuildMergedDraws() {
   state.allDraws = mergeDraws(state.baseDraws, state.localDraws).merged;
   planCache.clear();
@@ -414,12 +403,12 @@ function getPeriodContext() {
 function getFivePlan(target) {
   const mode = playMode();
   const size = targetSize(mode);
-  const sig = `${target.year}-${target.periodNum}|mode:${mode}|${state.allDraws.length}:${state.allDraws[0]?.id || ''}|salt:${state.randomSalt}`;
+  const sig = `${target.year}-${target.periodNum}|mode:${mode}|${state.allDraws.length}:${state.allDraws[0]?.id || ''}`;
   if (!planCache.has(sig)) {
     planCache.set(sig, generateDailyFive(
       state.allDraws,
       { year: target.year, periodNum: target.periodNum, date: target.date },
-      { randomSalt: state.randomSalt, mode }
+      { randomSalt: 0, mode }
     ));
   }
   return planCache.get(sig);
@@ -709,8 +698,6 @@ function renderToday() {
         : `${groupCount} 组合计覆盖 ${cov.distinct} 个号 · 共 ${betsTotal} 注`;
     }
   }
-  const resetBtn = $('btnResetRandom');
-  if (resetBtn) resetBtn.disabled = state.randomSalt === 0;
 
   const grid = $('fiveGrid');
   if (grid) {
@@ -852,7 +839,7 @@ async function runReplay() {
     if (token !== replay.token) return; // 已有更新的任务接管，本次结果作废（running 由新任务维护）
     const part = buildDailyFiveRecords(state.allDraws, targets.slice(i, i + chunk), {
       ...cfg,
-      randomSalt: state.randomSalt,
+      randomSalt: 0,
       mode
     });
     records.push(...part);
@@ -1219,21 +1206,6 @@ function bindEvents() {
   });
   on('btnPrevPeriod', 'click', () => stepPeriod(1));
   on('btnNextPeriod', 'click', () => stepPeriod(-1));
-  on('btnRerollRandom', 'click', () => {
-    state.randomSalt += 1;
-    saveRandomSalt();
-    renderToday();
-    scheduleReplay(); // 回放里的 #1 也用的是同一个盐值，必须一起重算
-    showToast(`🎲 随机号已重摇（第 ${state.randomSalt} 次）`);
-  });
-  on('btnResetRandom', 'click', () => {
-    if (state.randomSalt === 0) { showToast('已经是默认随机'); return; }
-    state.randomSalt = 0;
-    saveRandomSalt();
-    renderToday();
-    scheduleReplay();
-    showToast('已恢复默认随机');
-  });
   on('fiveGrid', 'click', (e) => {
     const copyBtn = e.target.closest('[data-copy-five]');
     if (copyBtn) {
