@@ -158,8 +158,10 @@ test('页面结构：特码 12 号清单 / 直选 5 组，精简后只保留推�
   const html = read('index.html');
   assert.ok(html.includes('id="fiveGrid"'), '必须有号码卡片容器');
   assert.ok(html.includes('12 号清单'), '特码按钮必须写明 12 号清单（12 注）');
-  assert.ok(html.includes('id="btnRerollRandom"'), '必须有「重摇随机组」');
-  assert.ok(html.includes('id="btnResetRandom"'), '必须有「恢复默认随机」');
+  // r25：重摇下线 —— 号码由系统定，摇到什么就是什么
+  assert.ok(!html.includes('btnRerollRandom'), '「重摇随机号」必须移除');
+  assert.ok(!html.includes('btnResetRandom'), '「恢复默认随机」必须移除');
+  assert.ok(!html.includes('重摇'), '页面文案里不应再出现「重摇」');
   assert.ok(html.includes('id="featuredCostLine"'), '必须有概率 / 赔率口径行');
 
   // 精简掉的模块不能再出现（含方案下拉：自选号码已下线）
@@ -258,7 +260,7 @@ test('页面结构：直选模式切换 + 已移除复式 / 胆码 / 35 注', ()
   // 交互入口：回放筛选 + 命中跳转 + 对齐凭证（r19 新增，r20 保留）
   assert.ok(html.includes('id="histFilter"'), '回放需要「只看命中」筛选');
   assert.ok(html.includes('id="btnPrevHit"') && html.includes('id="btnNextHit"'), '回放需要上一 / 下一命中跳转');
-  assert.ok(html.includes('id="heroShare"'), '头部需要「对齐凭证」（期号 + 重摇次数）');
+  assert.ok(html.includes('id="heroShare"'), '头部需要「对齐凭证」（期号 + 本机底库）');
 });
 
 /* ------------------------------------------------- 自动同步 workflow 的位置 */

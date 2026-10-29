@@ -285,7 +285,7 @@ export function loadPersistedState(backend, options = {}) {
     }
   }
 
-  // —— 随机注重摇次数 ——
+  // —— 随机注重摇次数（legacy：重摇已下线，页面不再读取这个值，仅保留迁移逻辑）——
   let randomSalt = 0;
   const saltKey = resolveKey(backend, 'RANDOM_SALT');
   if (saltKey) {
