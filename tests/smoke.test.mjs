@@ -98,7 +98,13 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     assert.ok(costLine.includes('98.0%'), '期望回报率没显示');
     const expectAnyHit = ((new Set(five).size / 49) * 100).toFixed(3);
     assert.ok(text('featuredCostLine').includes(expectAnyHit), `至少中 1 注应为 12/49 = ${expectAnyHit}%：${text('featuredCostLine')}`);
-    assert.ok(text('auditLine').includes('2022-132'), '底库体检没列出坏行');
+    // 底库体检默认收起（2022-132 是永久坏行，不该天天挂在首屏），点一下按钮才显示
+    const audit = window.document.getElementById('auditLine');
+    assert.ok(audit.hidden, '体检行默认应隐藏，避免天天提醒');
+    window.document.getElementById('btnSyncCheck')
+      .dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(!audit.hidden && text('auditLine').includes('2022-132'), '点「仅检查」后应能看到坏行明细');
     // r23：逐注对比从「一张 5 列表」改成「一注一张小卡」（对齐参考站）
     assert.ok(window.document.querySelectorAll('#histMetrics .sc-box').length >= 1, '逐注卡片没渲染');
     assert.ok(text('histMetrics').includes('有奖期占比'), '要有「有奖期占比」汇总卡');

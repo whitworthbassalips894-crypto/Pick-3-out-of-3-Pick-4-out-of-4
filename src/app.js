@@ -1611,6 +1611,10 @@ function renderSyncPanel() {
   const auditLine = $('auditLine');
   if (auditLine) {
     const report = auditDraws(state.allDraws);
+    // 2022-132 是底库里一条永久性的坏行，天天挂着一句「1 期异常」纯属噪音：
+    // 默认不显示，用户点了检查 / 同步才显示（要看的时候一定看得到）。
+    auditLine.hidden = !syncState.revealAudit;
+    if (!syncState.revealAudit) { auditLine.innerHTML = ''; } else {
     auditLine.classList.toggle('is-bad', report.issueCount > 0);
     if (report.issueCount > 0) {
       auditLine.innerHTML = `⚠ ${report.issueCount} 期数据异常，已从统计中排除（不影响其他期）`
@@ -1620,6 +1624,7 @@ function renderSyncPanel() {
           .join('')}</ul></details>`;
     } else {
       auditLine.innerHTML = `<span class="audit-ok">✓ 底库 ${report.usable} 期全部可用于统计</span>`;
+    }
     }
   }
 }
@@ -1696,6 +1701,8 @@ async function autoCheckSyncQuietly() {
 async function runSync({ write = false, fix = false, silent = false } = {}) {
   if (syncState.busy) return;
   syncState.busy = true;
+  // 只要不是「进页面自检」，就把底库体检结论显示出来（默认藏起来，避免天天挂着）
+  if (!silent) { syncState.revealAudit = true; renderSyncPanel(); }
   const status = $('syncStatus');
   const btns = ['btnSyncCheck', 'btnSyncNow', 'btnSyncFix'].map((id) => $(id)).filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
@@ -1726,9 +1733,16 @@ async function runSync({ write = false, fix = false, silent = false } = {}) {
       const lagNow = describeSourceLag(state.allDraws[0], todayIso());
       // 仓库里已经有新期次 → 是本机落后，点「一键同步」就能补上；
       // 仓库里也没有 → 才是仓库文件/自动任务的问题。
-      status.textContent = r.appendable.length
-        ? `检查完成（未写入任何数据）：${formatSyncSummary(r)}。仓库文件里已经有这些期次，点「一键同步」即可补齐本机。`
-        : `检查完成（未写入任何数据）：${formatSyncSummary(r)}。${lagNow.message}`;
+      if (r.appendable.length) {
+        status.textContent = `仓库里已有 ${r.appendable.length} 期新开奖，点「一键同步」补齐本机。`;
+      } else if (silent) {
+        // 进页面时的静默自检：只留一句，别把「检查完成（未写入任何数据）」这种过程话挂在首屏
+        const latest = state.allDraws[0];
+        status.textContent = `底库最新 ${latest?.id || '—'}${latest?.date ? `（${latest.date}）` : ''}`
+          + ` · 今天 ${lagNow.expectedId} ${lagNow.lagPeriods === 0 ? '已入库' : '未开奖（通常 21:40 后公布）'}`;
+      } else {
+        status.textContent = `没有可追加的期次。${lagNow.message}`;
+      }
       showToast(r.appendable.length
         ? `可补 ${r.appendable.length} 期，点「一键同步」`
         : (lagNow.stale ? `仓库底库落后 ${lagNow.lagPeriods} 期` : '检查完成'));
