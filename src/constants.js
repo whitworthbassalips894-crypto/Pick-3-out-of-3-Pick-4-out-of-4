@@ -9,7 +9,7 @@
  * 任何一次改动前端文件都必须同步提升该版本号，否则旧缓存会与新代码混用导致页面卡死。
  * 由 tests/build-version.test.mjs 自动校验三处一致性。
  */
-export const APP_BUILD = '2026.10.31-r21';
+export const APP_BUILD = '2026.10.31-r23';
 
 /** 页面上显示的版本标签 */
 export const APP_VERSION_LABEL = `v${APP_BUILD}`;

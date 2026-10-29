@@ -231,8 +231,8 @@ export function describeSourceLag(localLatest, todayIso, options = {}) {
   const hint = lagPeriods === 0
     ? ''
     : stale
-      ? '仓库文件 data/draws.json 靠 GitHub Actions 每天 21:45 起自动抓取（会一直重试到 23:55），App 抓每次都会自动等；若连续落后超过 1 天，请到 Actions 看 sync-draws 是否报错'
-      : '今天的开奖通常在北京时间 21:40 之后公布，还没到点或上游还没放榜';
+      ? '仓库文件靠 Actions 每天 21:45 起自动抓取（重试到 23:55）；落后超过 1 天才需要去 Actions 看 sync-draws'
+      : '今天的开奖通常 21:40 之后才公布，还没到点或上游还没放榜';
 
   return {
     ok: true,

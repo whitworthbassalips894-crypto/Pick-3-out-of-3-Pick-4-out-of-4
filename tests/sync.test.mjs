@@ -181,7 +181,7 @@ test('describeSourceLag：落后 2 期以上判定为 stale，并点明是仓库
   assert.equal(r.lagPeriods, 2);
   assert.equal(r.expectedId, '2026-300');
   assert.match(r.message, /落后 2 期/);
-  assert.match(r.message, /GitHub Actions/);
+  assert.match(r.message, /Actions/, '要指明更新来自 GitHub Actions');
 });
 
 test('describeSourceLag：跨年也按天数算', () => {

@@ -168,13 +168,13 @@ test('页面结构：特码 12 号清单 / 直选 5 组，精简后只保留推�
     'id="histStrategy"', 'id="strategiesBox"', 'id="pick3List"', 'id="pick4List"']) {
     assert.ok(!html.includes(gone), `旧模块 ${gone} 必须移除`);
   }
-  // 回放表头
-  assert.ok(html.includes('本期命中'));
-  assert.ok(html.includes('当期 6 正码'));
+  // 回放表头（r23 起对齐参考站：期号 / 开奖 / 逐注命中 / 当期奖金 四列）
+  assert.ok(html.includes('逐注命中'), '回放表头要有「逐注命中」');
+  assert.ok(html.includes('当期开奖'), '回放表头要有「当期开奖」');
+  assert.ok(html.includes('当期奖金'), '回放表头要有「当期奖金」');
   assert.ok(html.includes('特码'));
   assert.ok(html.includes('三中三'));
   assert.ok(html.includes('四中四'));
-  assert.ok(html.includes('详情'));
 });
 
 test('页面里每个按钮 / 下拉都真的绑定了事件（防止再次出现「点了没反应」）', () => {
@@ -215,7 +215,7 @@ test('回放筛选只剩「范围 + 是否命中」两项（年份 / 搜索 / �
   }
   // r19 重新引入了「只看命中 / 只看部分命中」，用来快进到有反应的那一期
   assert.ok(app.includes('replay.filters.hit'), '回放需要「命中筛选」状态（只看命中 / 只看部分命中）');
-  assert.ok(app.includes("filters: {\n    range: '120'"), '回放筛选状态第一项仍是「范围」');
+  assert.ok(app.includes("filters: {\n    range: '100'"), '回放筛选状态第一项仍是「范围」（默认近 100 期）');
 });
 
 test('Service Worker 的外壳清单覆盖 app.js 的全部本地依赖（离线可用）', () => {
@@ -338,13 +338,13 @@ test('页面结构 r20：一键同步置顶 + 三处折叠默认展开', () => {
   assert.ok(posToday < posHist, '今日号码仍在回放之前');
 
   // 折叠块：数据同步 / 本金与赔率 / 版本与缓存维护 全部默认展开
-  const folds = [...html.matchAll(/<details class="fold"([^>]*)>\s*<summary>([^<]+)<\/summary>/g)];
+  const folds = [...html.matchAll(/<details class="fold"([^>]*)>\s*<summary>([\s\S]*?)<\/summary>/g)];
   assert.equal(folds.length, 3, `应只有 3 个主折叠块，实际 ${folds.length}`);
   for (const [, attrs, title] of folds) {
-    assert.ok(/\bopen\b/.test(attrs), `「${title.trim()}」默认应展开（加 open）`);
+    assert.ok(/\bopen\b/.test(attrs), `「${title.replace(/<[^>]+>/g, '').trim()}」默认应展开（加 open）`);
   }
   // 补位工具（粘贴导入 / 本机开奖）是子折叠，默认收起：别把「今日号码」挤到第二屏
-  const sub = [...html.matchAll(/<details class="fold fold-sub"([^>]*)>\s*<summary>([^<]+)<\/summary>/g)];
+  const sub = [...html.matchAll(/<details class="fold fold-sub"([^>]*)>\s*<summary>([\s\S]*?)<\/summary>/g)];
   assert.equal(sub.length, 1, '补位工具应收进 1 个子折叠');
   assert.ok(!/\bopen\b/.test(sub[0][1]), '子折叠默认应收起');
   assert.ok(html.indexOf('id="btnSyncNow"') < html.indexOf('id="pasteBox"'), '一键同步必须排在粘贴导入之前');
