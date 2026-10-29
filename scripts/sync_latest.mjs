@@ -324,11 +324,13 @@ async function fetchOnce(opts) {
  * @param {number}   [opts.intervalSec] 轮询间隔（秒）
  * @param {number}   [opts.maxFetchFailures] 连续抓取失败多少次后放弃
  * @param {boolean}  [opts.commit]      写库后提交推送（CI 自动开启）
+ * @param {Array}    [opts.existing]    注入当前底库（单测用；默认读 data/draws.json）
  */
 export async function syncDraws(opts = {}) {
   const sleep = opts.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const waitFor = opts.waitFor || todayInShanghai(opts.now || new Date());
-  const existing = readExistingDraws();
+  // 单测注入底库：否则测试结果会跟着 data/draws.json 当天有没有新数据而变
+  const existing = opts.existing || readExistingDraws();
 
   // —— 门控：已经有今天这一期，直接结束，不碰网络 ——
   if (isDatabaseFresh(existing, waitFor)) {

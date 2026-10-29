@@ -36,7 +36,7 @@ import {
 } from './dailyfive.js';
 import { directBaseline, expectedReturnRate, formatPercent } from './statistics.js';
 import { nextPeriodMeta } from './periods.js';
-import { auditDraws, formatAuditSummary } from './audit.js';
+import { auditDraws } from './audit.js';
 import {
   STORAGE_KEYS,
   loadPersistedState,
@@ -73,7 +73,7 @@ const replay = {
   expanded: new Set(), // 展开的期号（用 draw.id，重新筛选后不会错位）
   cursor: -1, // 「上一 / 下一命中」定位用的行号（在 filtered 里的下标）
   filters: {
-    range: '120', // 30 / 60 / 120 / 365 / all
+    range: '100', // 30 / 100 / 365 / year:YYYY / all
     hit: 'all' // all = 全部 / hit = 只看中奖 / partial = 只看部分命中
   }
 };
@@ -243,10 +243,10 @@ function ballHtml(num, opts = {}) {
 
 function miniBallHtml(num, opts = {}) {
   const n = Number(num);
-  const cls = ['mini-ball', getColorForNumber(n)];
+  // 参考站口径：红底 = 本期命中，灰底 = 未命中；特码用虚线圈区分
+  const cls = ['d-num'];
   if (opts.special) cls.push('special');
-  if (opts.hit) cls.push('is-hit');
-  if (opts.miss) cls.push('miss');
+  if (opts.hit) cls.push('hit');
   const specialTitle = opts.special
     ? (opts.specialCounts ? '（特码，本玩法按它判定命中）' : '（特码，不计入命中）')
     : '';
@@ -775,19 +775,47 @@ function renderToday() {
  * 每次底库变化都要重刷，否则「全部」后面显示的还是旧期数。
  */
 function syncHistRangeLabel() {
-  const opt = $('histRange')?.querySelector('option[value="all"]');
-  if (opt) opt.textContent = `全部（${state.allDraws.length} 期）`;
+  const host = $('histRangeTabs');
+  if (host) {
+    const total = state.allDraws.length;
+    const all = host.querySelector('.tab[data-range="all"]');
+    if (all) all.textContent = `全部 · ${total}`;
+    // 年份标签带上期数（与参考站一致：2026 年 · 282 期），没有数据的年份直接隐藏
+    const byYear = new Map();
+    for (const d of state.allDraws) byYear.set(Number(d.year), (byYear.get(Number(d.year)) || 0) + 1);
+    host.querySelectorAll('.tab[data-range^="year:"]').forEach((btn) => {
+      const year = Number(btn.dataset.range.slice(5));
+      const n = byYear.get(year) || 0;
+      btn.textContent = n ? `${year} 年 · ${n}` : `${year} 年`;
+      btn.hidden = n === 0;
+      // 当前选中的年份没数据了（换了底库），退回「近 100 期」
+      if (!n && String(replay.filters.range) === btn.dataset.range) replay.filters.range = '100';
+    });
+  }
+  markRangeTab();
 }
 
 /** 依据「范围」筛出需要回放的期次 */
 function replayTargets() {
   const f = replay.filters;
   let list = state.allDraws;
-  if (f.range !== 'all') {
+  if (String(f.range).startsWith('year:')) {
+    const year = Number(String(f.range).slice(5));
+    list = list.filter((d) => Number(d.year) === year);
+  } else if (f.range !== 'all') {
     const n = Math.max(1, Number(f.range) || 0);
     list = list.slice(0, n);
   }
   return list;
+}
+
+/** 高亮当前选中的范围标签 */
+function markRangeTab() {
+  const host = $('histRangeTabs');
+  if (!host) return;
+  host.querySelectorAll('.tab[data-range]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.range === String(replay.filters.range));
+  });
 }
 
 /**
@@ -885,19 +913,12 @@ function periodMoney(rec) {
   };
 }
 
-function resultCellHtml(isHit, betText, combosText, net) {
-  const badge = isHit
-    ? '<span class="badge hit">命中</span>'
-    : '<span class="badge miss">未中</span>';
-  const comboHtml = combosText
-    ? `<small class="win-combos">${combosText}</small>`
-    : '';
-  return `<div class="cell-res">
-    ${badge}
-    <small>${betText}</small>
-    ${comboHtml}
-    <small>本期净 ${money(net)}</small>
-  </div>`;
+/** 当期奖金（参考站口径：没有命中也显示 ¥0，有命中标红） */
+function prizeCellHtml(payout, idx) {
+  const v = Math.round(Number(payout) || 0);
+  const cls = v > 0 ? 'prize-tot win' : 'prize-tot';
+  return `<span class="${cls}">${v > 0 ? `¥${v.toLocaleString('zh-CN')}` : '¥0'}</span>
+    <button type="button" class="tk-pill fold" data-feat-toggle="${idx}" title="展开当期逐注明细">▾</button>`;
 }
 
 function replayRowHtml(rec, idx) {
@@ -906,49 +927,44 @@ function replayRowHtml(rec, idx) {
   const size = targetSize(mode);
   const isSpecial = mode === 'special';
 
-  // 当期 6 正码：命中任意一注的号码描边（特码玩法里正码不参与命中，只有特码描边）
+  // 当期 6 正码：本期命中过的号码标红（特码玩法里正码不参与命中，只有特码标红）
   const anyHit = new Set(rec.five.flatMap((e) => e.hitNums || []));
-  const normalBalls = d.numbers.map((n) => miniBallHtml(n, { hit: !isSpecial && anyHit.has(n), miss: isSpecial || !anyHit.has(n) })).join('');
+  const normalBalls = d.numbers
+    .map((n) => miniBallHtml(n, { hit: !isSpecial && anyHit.has(n) }))
+    .join('');
   const specialBall = d.special != null
-    ? miniBallHtml(d.special, {
+    ? `<span class="d-sep"></span>${miniBallHtml(d.special, {
       special: true,
       specialCounts: isSpecial,
-      hit: isSpecial && anyHit.has(d.special),
-      miss: !(isSpecial && anyHit.has(d.special))
-    })
-    : '<span class="badge special">—</span>';
+      hit: isSpecial && anyHit.has(d.special)
+    })}`
+    : '';
 
-  // 每张卡片（特码清单 / 三中三、四中四各组）的命中
-  const perFive = rec.five.map((e) => {
+  // 逐注命中胶囊：中了的标红，没中的灰；特码是「中了几个号 / 共几注」
+  const pills = rec.five.map((e) => {
     const betsThis = Number.isFinite(e.bets) && e.bets > 0 ? e.bets : e.numbers.length;
-    const cls = e.hitCount > 0 ? 'hit' : 'miss';
+    const wins = Number(e.hitCount) || 0;
+    // 特码：中了几注 / 共几注；直选：这组 3~4 个号里命中了几个（与「场均命中码数」同口径）
+    const text = isSpecial
+      ? `${e.code} ${wins}/${betsThis}`
+      : `${e.code} ${Number(e.matchedNormalCount) || 0}/${size}`;
+    const cls = wins > 0 ? 'tk-pill win' : 'tk-pill';
     const title = isSpecial
-      ? (e.isWin ? `${e.name} 覆盖了特码（中 ${e.hitCount} 注）` : `${e.name} 没覆盖特码`)
+      ? (wins > 0 ? `${e.name} 覆盖了特码（中 ${wins} 注）` : `${e.name} 没覆盖特码`)
       : (betsThis > 1
-        ? `${e.name}：${betsThis} 注中 ${e.hitCount} 注`
+        ? `${e.name}：${betsThis} 注中 ${wins} 注`
         : (e.isWin ? `${e.name} 命中 ${size} 个正码` : `${e.name} 命中 ${e.matchedNormalCount ?? 0}/${size} 个正码`));
-    // 注数 > 1 的（特码 12 注）显示「中了几注」；单注组显示 ✓ / —
-    const badgeText = betsThis > 1 ? `${e.hitCount || 0}/${betsThis}` : (e.isWin ? '✓' : '—');
-    return `<span class="badge ${cls}" title="${escapeHtml(title)}">${escapeHtml(e.code)} ${badgeText}</span>`;
-  }).join(' ');
+    return `<span class="${cls}" title="${escapeHtml(title)}">${escapeHtml(text)}</span>`;
+  }).join('');
 
   const m = periodMoney(rec);
-  const winList = rec.five.filter((e) => e.hitCount > 0);
-  const combos = winList.map((e) => `${numsText(e.numbers)}（中 ${e.hitCount} 注）`).join('；');
 
   return `
-    <tr class="${m.wins ? 'row-hit' : ''}" data-row-idx="${idx}" data-draw-id="${escapeHtml(d.id)}">
+    <tr class="main-row ${m.wins ? 'row-win' : ''}" data-row-idx="${idx}" data-draw-id="${escapeHtml(d.id)}">
       <td class="col-period">${d.year}-${d.period}<small>${escapeHtml(d.date)}</small></td>
-      <td><div class="cell-balls">${normalBalls}</div></td>
-      <td class="col-special"><div class="cell-balls">${specialBall}</div></td>
-      <td class="col-hit"><div class="cell-five-hits">${perFive}</div></td>
-      <td>${resultCellHtml(
-        m.wins > 0,
-        `${rec.five.reduce((a, e) => a + (Number.isFinite(e.bets) && e.bets > 0 ? e.bets : 1), 0)} 注中 ${m.wins} 注`,
-        combos,
-        m.net
-      )}</td>
-      <td class="col-feat"><button type="button" class="feat-btn" data-feat-toggle="${idx}">展开</button></td>
+      <td class="col-draw"><div class="draw-balls">${normalBalls}${specialBall}</div></td>
+      <td class="col-hits"><div class="tk-pills">${pills}</div></td>
+      <td class="col-prize">${prizeCellHtml(m.payout, idx)}</td>
     </tr>`;
 }
 
@@ -976,7 +992,7 @@ function featureDetailHtml(rec) {
       </div>`;
   };
   return `
-    <tr class="feat-detail"><td colspan="6">
+    <tr class="feat-detail"><td colspan="4">
       ${rec.five.map(block).join('')}
     </td></tr>`;
 }
@@ -1030,6 +1046,12 @@ function renderReplayTable() {
  * 只陈述事实：每期开奖独立，各注命中次数差异都在随机波动范围内，
  * 谁 ROI 高都是运气，不代表任何策略有优势。
  */
+/**
+ * 回放指标（参考 lottery-tool 版式）
+ *
+ * 左边一张「有奖期占比」，右边每注一张小卡：场均命中 / 中奖期数 / 当期最高 / 累计返奖。
+ * 只陈述事实：每期开奖独立，各注之间的差异都在随机波动范围内。
+ */
 function renderReplayMetrics() {
   const mode = playMode();
   const cfg = betConfig(mode);
@@ -1037,68 +1059,90 @@ function renderReplayMetrics() {
   const isSpecial = mode === 'special';
   const odds = currentOdds(mode);
   const baseline = directBaseline(mode);
-  const summary = summarizeDailyFive(replay.filtered, {
-    stake: cfg.stake,
-    odds3: cfg.odds3,
-    odds4: cfg.odds4,
-    oddsSpecial: cfg.oddsSpecial,
-    mode
-  });
+  const records = replay.filtered;
   const host = $('histMetrics');
   if (!host) return;
 
-  // 当前这一期的实际号码（下面的文案要用到 plan.layout，必须在模板前取到）
-  const plan = getFivePlan(getPeriodContext().target);
+  // —— 逐期汇总（与表格同源，避免两处数字对不上）——
+  let winPeriods = 0;
+  let payoutSum = 0;
+  let costSum = 0;
+  let maxPayout = 0;
+  for (const rec of records) {
+    const m = periodMoney(rec);
+    if (m.wins > 0) winPeriods++;
+    payoutSum += m.payout;
+    costSum += m.cost;
+    if (m.payout > maxPayout) maxPayout = m.payout;
+  }
+  const periods = records.length;
+  const winRate = periods ? (winPeriods / periods) * 100 : 0;
+  const backRate = costSum > 0 ? (payoutSum / costSum) * 100 : 0;
 
-  const rows = summary.catalog.filter((c) => c.periods > 0).map((c) => `
-      <tr class="${c.random ? 'is-random' : ''}">
-        <td>${c.icon} ${escapeHtml(c.code)} ${escapeHtml(c.name)}</td>
-        <td>${c.winPeriods} 期 · ${c.winRate}%</td>
-        <td>${c.avgHits}</td>
-        <td>${Math.round(c.payout).toLocaleString()}</td>
-        <td>${c.roi}%</td>
-      </tr>`).join('');
+  // —— 逐注汇总 ——
+  const agg = new Map();
+  for (const rec of records) {
+    for (const e of rec.five) {
+      let a = agg.get(e.id);
+      if (!a) {
+        a = { id: e.id, code: e.code, name: e.name, icon: e.icon, random: !!e.random, periods: 0, match: 0, wins: 0, best: 0, payout: 0 };
+        agg.set(e.id, a);
+      }
+      a.periods++;
+      // 命中口径：特码 = 中了几注；直选 = 命中的正码个数
+      const matchThis = isSpecial ? (Number(e.hitCount) || 0) : (Number(e.matchedNormalCount) || 0);
+      a.match += matchThis;
+      if ((Number(e.hitCount) || 0) > 0) a.wins++;
+      if (matchThis > a.best) a.best = matchThis;
+      a.payout += Number(e.payout) || 0;
+    }
+  }
+  const cards = [...agg.values()].map((a) => {
+    const avg = a.periods ? (a.match / a.periods) : 0;
+    const unit = isSpecial ? '注' : '码';
+    const cls = ['sc-box'];
+    if (a.random) cls.push('is-random');
+    return `
+      <div class="${cls.join(' ')}">
+        <span class="sc-name">${a.icon} ${escapeHtml(a.code)} ${escapeHtml(a.name)}</span>
+        <span class="sc-hit">${avg.toFixed(2)} ${unit}</span>
+        <small>中奖 ${a.wins} 期 · 最高 ${a.best}</small>
+        <span class="sc-sum">累计 ¥${Math.round(a.payout).toLocaleString('zh-CN')}</span>
+      </div>`;
+  }).join('');
 
+  const unit = isSpecial ? '注' : '码';
   host.innerHTML = `
-    <div class="metric-card v-num mc-wide">
-      <div class="mc-head">
-        <span>${isSpecial ? '特码' : modeTitle(mode)} · ${summary.periods} 期回放</span>
-        <span class="mc-label">单注 ${cfg.stake} 元${targetBets(mode) > 1 ? ` · ${isSpecial ? '每期' : '每组'} ${targetBets(mode)} 注` : ''} · 赔率 ${odds} 倍</span>
+    <div class="metric-card v-prize">
+      <div class="mc-head">${isSpecial ? '特码' : modeTitle(mode)} · 有奖期占比</div>
+      <div>
+        <span class="mc-val">${winRate.toFixed(1)}%</span>
+        <span class="mc-label">${winPeriods} / ${periods} 期有奖</span>
       </div>
-      <div class="table-scroll">
-        <table class="mc-table">
-          <thead>
-            <tr><th>${isSpecial ? '清单' : '组'}</th><th>命中</th><th>场均命中注数</th><th>累计返奖(元)</th><th>ROI</th></tr>
-          </thead>
-          <tbody>${rows || '<tr><td colspan="5">暂无数据</td></tr>'}</tbody>
-        </table>
+      <div class="mc-bar"><div class="mc-fill" style="width:${Math.min(100, winRate).toFixed(1)}%"></div></div>
+      <div class="mc-kv">
+        <div><span class="mc-sm">累计返奖</span><b>¥${Math.round(payoutSum).toLocaleString('zh-CN')}</b></div>
+        <div><span class="mc-sm">投入</span><b>¥${Math.round(costSum).toLocaleString('zh-CN')}</b></div>
+        <div><span class="mc-sm">返奖比</span><b>${backRate.toFixed(1)}%</b></div>
+        <div><span class="mc-sm">单期最高</span><b>¥${Math.round(maxPayout).toLocaleString('zh-CN')}</b></div>
       </div>
-      <div class="mc-grid">
-        <div><span class="mc-sm">总成本</span><b>${Math.round(summary.totalCost).toLocaleString()} 元</b></div>
-        <div><span class="mc-sm">总返奖</span><b>${Math.round(summary.totalPayout).toLocaleString()} 元</b></div>
-        <div><span class="mc-sm">净盈亏</span><b>${money(summary.totalNet)}</b></div>
-        <div><span class="mc-sm">整体 ROI</span><b>${summary.totalRoi}%</b></div>
-      </div>
-      <div class="mc-sub">
-        每期开奖独立：${isSpecial ? '清单里每个号各算 1 注' : '5 组只是风格不同'}，命中次数差异都在随机波动范围内，<b>谁 ROI 高都不代表策略有优势</b>。
-      </div>
-    </div>`;
+      <div class="mc-sub">单注 ${cfg.stake} 元${targetBets(mode) > 1 ? ` · 每期 ${targetBets(mode)} 注` : ' · 每组 1 注'} · 赔率 ${odds} 倍</div>
+    </div>
+    <div class="strat-compare">${cards || '<div class="sc-box">暂无数据</div>'}</div>`;
 
+  // —— 口径说明（一句话，不再堆长段落）——
   const ev = expectedReturnRate(mode, odds);
   const fair = baseline.fairOdds >= 100 ? Math.round(baseline.fairOdds) : baseline.fairOdds.toFixed(1);
-  // 「至少中 1 注」按当前这一期的实际号码精确算（走 plan.coverage）
+  const plan = getFivePlan(getPeriodContext().target);
   const anyHit = plan.coverage?.anyHit ?? baseline.hitProb;
   const distinct = plan.coverage?.distinct ?? size * plan.five.length;
   const betsNow = plan.coverage?.totalBets ?? (isSpecial ? size : targetBets(mode) * plan.five.length);
-  const perTicketText = baseline.hitProbPerTicket != null
-    ? `，${plan.layout === 'groups' ? '每组' : '整张'}命中 <b>${formatPercent(baseline.hitProbPerTicket, 4)}</b>`
-    : '';
   const base = $('histBaseline');
   if (base) {
-    base.innerHTML = `随机基线：单注命中 <b>${formatPercent(baseline.hitProb, 4)}</b>${perTicketText}，公平赔率 <b>${fair}</b> 倍；
-      当前赔率 ${odds} 倍 → 期望回报率 <b>${formatPercent(ev, 1)}</b>。
-      以当前这期${isSpecial ? '这张清单' : '5 组'}的实际号码（覆盖 ${distinct} 个号、共 ${betsNow} 注）算 → 至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
-      回放只是历史统计，不能保证未来中奖，也不构成投注建议。`;
+    base.innerHTML = `随机理论期望：每期 <b>${baseline.expectedHits.toFixed(2)} ${unit}</b>
+      · 公平赔率 <b>${fair}</b> 倍，当前 ${odds} 倍 → 期望回报率 <b>${formatPercent(ev, 1)}</b>
+      · 当前这期覆盖 ${distinct} 个号 ${betsNow} 注，至少中 1 注 <b>${formatPercent(anyHit, 3)}</b>。
+      回放只做历史统计，各注差异都在随机波动内，不构成投注建议。`;
   }
 }
 
@@ -1205,9 +1249,12 @@ function bindEvents() {
     replay.visible += REPLAY_PAGE;
     renderReplayTable();
   });
-  // 范围下拉必须真的重算：之前这一段被误删，导致「换范围 → 点重新计算」看起来毫无反应
-  on('histRange', 'change', (e) => {
-    replay.filters.range = e.target.value || '120';
+  // 范围标签：点了就重算（之前下拉被误删事件，导致「换范围」毫无反应）
+  on('histRangeTabs', 'click', (e) => {
+    const btn = e.target.closest('.tab[data-range]');
+    if (!btn) return;
+    replay.filters.range = btn.dataset.range || 'all';
+    markRangeTab();
     runReplay();
   });
   on('btnReplayRun', 'click', () => runReplay());
@@ -1261,9 +1308,8 @@ function bindEvents() {
   on('btnPrevHit', 'click', () => jumpHit(-1));
   on('btnNextHit', 'click', () => jumpHit(1));
   on('histBody', 'click', (e) => {
-    const btn = e.target.closest('[data-feat-toggle]');
-    if (!btn) return;
-    const tr = btn.closest('tr[data-draw-id]');
+    // 点整行 / 点 ▾ 都能展开（参考站交互）；点详情行内部不处理
+    const tr = e.target.closest('tr[data-draw-id]');
     const id = tr?.dataset.drawId;
     if (!id) return;
     if (replay.expanded.has(id)) {
@@ -1560,16 +1606,20 @@ function renderSyncPanel() {
   if (cnt) cnt.textContent = String(state.localDraws.length);
 
   // 底库体检：坏行会列出来，但不会被自动「修好」（不猜测缺失号码）
+  // 底库体检：正常时只留一句「全部可用」，有坏行时一句结论 + 折叠明细。
+  // 以前把「1761 期可统计 / 1 处错误 / 不猜测补全」整段常驻在页面上，属于噪音。
   const auditLine = $('auditLine');
   if (auditLine) {
     const report = auditDraws(state.allDraws);
-    auditLine.textContent = formatAuditSummary(report);
     auditLine.classList.toggle('is-bad', report.issueCount > 0);
     if (report.issueCount > 0) {
-      auditLine.innerHTML = `${escapeHtml(formatAuditSummary(report))}<ul class="audit-list">${report.issues
-        .slice(0, 6)
-        .map((i) => `<li>${escapeHtml(i.id)}（${escapeHtml(i.date)}）：${escapeHtml(i.message)}</li>`)
-        .join('')}</ul>`;
+      auditLine.innerHTML = `⚠ ${report.issueCount} 期数据异常，已从统计中排除（不影响其他期）`
+        + `<details class="audit-more"><summary>看是哪一期</summary><ul class="audit-list">${report.issues
+          .slice(0, 6)
+          .map((i) => `<li>${escapeHtml(i.id)}（${escapeHtml(i.date)}）：${escapeHtml(i.message)}</li>`)
+          .join('')}</ul></details>`;
+    } else {
+      auditLine.innerHTML = `<span class="audit-ok">✓ 底库 ${report.usable} 期全部可用于统计</span>`;
     }
   }
 }
@@ -1703,10 +1753,13 @@ async function runSync({ write = false, fix = false, silent = false } = {}) {
     status.textContent = `${lag.base}。仓库文件没有新期次，正在尝试直连上游…`;
     const remote = await fetchRemoteSourceHtml();
     if (!remote.html) {
-      status.textContent = `同步完成：${formatSyncSummary(r)}。${lag.message}。`
-        + `上游直连失败：${remote.reason}`
-        + (remote.attempts.length ? `（${remote.attempts.join('；')}）` : '')
-        + ' 可先用下方「粘贴导入」临时补期。';
+      // 浏览器直连上游基本永远失败（非标端口 + 坏证书 + CORS），这是预期行为。
+      // 以前把 3 条失败原因原样铺在页面上，属于噪音 —— 收进折叠里，真要看再展开。
+      status.innerHTML = `仓库文件暂无新期次。${escapeHtml(lag.message)}`
+        + `<details class="audit-more"><summary>为什么浏览器抓不到上游</summary>`
+        + `<ul class="audit-list"><li>${escapeHtml(remote.reason)}</li>`
+        + remote.attempts.map((a) => `<li>${escapeHtml(a)}</li>`).join('')
+        + '</ul></details>';
       showToast(lag.ok && lag.stale ? `底库落后 ${lag.lagPeriods} 期` : '已是最新，无需同步');
       return;
     }

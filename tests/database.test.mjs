@@ -86,12 +86,18 @@ test('syncDraws dryRun parses and merges incoming HTML without corrupting databa
   `;
 
   const before = JSON.parse(fs.readFileSync(JSON_PATH, 'utf-8'));
-  const result = await syncDraws({ rawText: mockHtml, dryRun: true });
+  // waitFor 用一个底库永远不可能有的日期：否则一旦当天开奖已入库，门控会提前返回 fresh，
+  // 这条「解析 + 合并」的用例就什么都测不到了。
+  const result = await syncDraws({ rawText: mockHtml, dryRun: true, waitFor: '2099-12-31' });
   assert.equal(result.parsedCount, 1);
   // 2026-300 可能已经在底库里（自动同步跑过），这里只要求「合并后总数正确、最新一期正确」
   assert.equal(result.totalCount, before.draws.length + (before.draws.some((d) => d.id === '2026-300') ? 0 : 1));
-  assert.equal(result.latest.id, '2026-300');
-  assert.equal(result.latest.special, 45);
+  // ⚠ 这里以前写死 '2026-300'。底库一旦同步进 2026-301，mock 合并后 latest 就是 301，
+  //   这条断言必然飘红 —— 而 CI 里「提交」排在「测试」后面，于是当天的数据每天被整轮丢掉
+  //   （2026-10-29 的 run #7 / #8 就是这么失败的）。改成跟着底库走。
+  const expectedLatest = before.draws.some((d) => d.id === '2026-300') ? before.draws[0].id : '2026-300';
+  assert.equal(result.latest.id, expectedLatest);
+  if (expectedLatest === '2026-300') assert.equal(result.latest.special, 45);
   // dryRun 绝不能改动文件
   const after = JSON.parse(fs.readFileSync(JSON_PATH, 'utf-8'));
   assert.equal(after.draws.length, before.draws.length, 'dryRun 不允许写入');

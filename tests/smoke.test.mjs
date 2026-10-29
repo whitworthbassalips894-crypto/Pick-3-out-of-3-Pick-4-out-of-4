@@ -99,7 +99,9 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     const expectAnyHit = ((new Set(five).size / 49) * 100).toFixed(3);
     assert.ok(text('featuredCostLine').includes(expectAnyHit), `至少中 1 注应为 12/49 = ${expectAnyHit}%：${text('featuredCostLine')}`);
     assert.ok(text('auditLine').includes('2022-132'), '底库体检没列出坏行');
-    assert.equal(window.document.querySelectorAll('#histMetrics .mc-table thead th').length, 5, '逐注对比表应有 5 列');
+    // r23：逐注对比从「一张 5 列表」改成「一注一张小卡」（对齐参考站）
+    assert.ok(window.document.querySelectorAll('#histMetrics .sc-box').length >= 1, '逐注卡片没渲染');
+    assert.ok(text('histMetrics').includes('有奖期占比'), '要有「有奖期占比」汇总卡');
     assert.ok(text('replayStatus').includes('已回放'), `回放未完成：${text('replayStatus')}`);
 
     // 精简后不该再出现的区块
@@ -108,14 +110,15 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
     }
 
     // —— 回归：切换回放范围必须真的重算并重绘（曾经因为漏绑 change 事件而毫无反应）——
-    const sel = window.document.getElementById('histRange');
-    assert.ok(sel, '必须有回放范围下拉');
+    const tabs = window.document.getElementById('histRangeTabs');
+    assert.ok(tabs, '必须有回放范围标签');
     assert.ok(document.getElementById('btnReplayRun'), '必须有重新计算按钮');
+    const pick = (range) => tabs.querySelector(`.tab[data-range="${range}"]`)
+      .dispatchEvent(new window.Event('click', { bubbles: true }));
     const counts = [];
-    for (const [value, expect] of [['30', 30], ['60', 60]]) {
-      sel.value = value;
-      sel.dispatchEvent(new window.Event('change', { bubbles: true }));
-      await new Promise((r) => setTimeout(r, 900));
+    for (const [value, expect] of [['30', 30], ['100', 100]]) {
+      pick(value);
+      await new Promise((r) => setTimeout(r, 1400));
       const countText = text('histCount');
       assert.ok(countText.includes(`共 ${expect} 期`), `范围 ${value} 后统计应变成 ${expect} 期，实际：${countText}`);
       counts.push(window.document.querySelectorAll('#histBody tr[data-draw-id]').length);
@@ -127,6 +130,14 @@ test('页面冒烟：index.html + app.js 能在 DOM 里跑起来并渲染出关�
       .dispatchEvent(new window.Event('click', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(window.document.querySelectorAll('#histBody tr.feat-detail').length, 1, '详情行没渲染出来');
+    // 整行点击也要能收起（手机上不会精确点到 ▾）
+    const openRow = () => window.document.querySelector('#histBody tr[data-draw-id]');
+    openRow().dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(window.document.querySelectorAll('#histBody tr.feat-detail').length, 0, '整行点击应能收起');
+    openRow().dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(window.document.querySelectorAll('#histBody tr.feat-detail').length, 1, '再点一次应重新展开');
 
     // —— 回归：重摇随机注后，回放里的 #1 也要跟着变 ——
     const detailText = () => window.document.querySelector('#histBody tr.feat-detail')?.textContent || '';
