@@ -30,7 +30,20 @@ function fakePage(draws) {
   ).join('\n');
 }
 
-const TODAY = todayInShanghai();
+/**
+ * ⚠ 这些用例必须自带底库，不能读真实的 data/draws.json。
+ *
+ * 踩过的坑（2026-10-29）：用例里写 `waitFor: todayInShanghai()`，一旦当天开奖真的同步进底库，
+ * 门控 `isDatabaseFresh` 就会提前返回 fresh —— 于是「等待上游」「连续失败」等用例全部飘红。
+ * 换句话说：**同步越正常，测试越红**。用注入的固定底库 + 固定目标日可以彻底断掉这个耦合。
+ */
+const TARGET = '2026-10-29';
+const baseDb = () => [{
+  id: '2026-301', year: 2026, periodNum: 301, period: '301', date: '2026-10-28',
+  numbers: [8, 9, 10, 11, 12, 13], special: 14,
+  colors: ['red', 'blue', 'green', 'red', 'blue', 'green', 'red'],
+  zodiacs: ['鼠', '牛', '虎', '兔', '龙', '蛇', '马']
+}];
 
 /* ------------------------------------------------------------ 时区 */
 
@@ -98,13 +111,14 @@ test('写库前校验：期数只增不减 / 号码合法 / 7 个不重复', () 
 test('等上游发布：前两轮还没有今天这一期，第三轮出现就立刻收工', async () => {
   const oldPage = fakePage([{ period: 301, date: '2026-10-28', nums: [8, 9, 10, 11, 12, 13], special: 14 }]);
   const newPage = fakePage([
-    { period: 302, date: TODAY, nums: [1, 2, 3, 4, 5, 6], special: 7 },
+    { period: 302, date: TARGET, nums: [1, 2, 3, 4, 5, 6], special: 7 },
     { period: 301, date: '2026-10-28', nums: [8, 9, 10, 11, 12, 13], special: 14 }
   ]);
   let rounds = 0;
   const sleeps = [];
   const result = await syncDraws({
-    waitFor: TODAY,
+    waitFor: TARGET,
+    existing: baseDb(),
     wait: true,
     intervalSec: 5,
     maxWaitMin: 60,
@@ -118,13 +132,14 @@ test('等上游发布：前两轮还没有今天这一期，第三轮出现就�
   assert.equal(result.rounds, 3, '前两轮没拿到应继续等，第三轮拿到');
   assert.equal(sleeps.length, 2, '两次等待之间没有多余睡眠');
   assert.equal(sleeps[0], 5000, '按 intervalSec 等待');
-  assert.equal(result.latest.date, TODAY);
+  assert.equal(result.latest.date, TARGET);
 });
 
 test('等上游发布：上游一直没发布 → not-published（属于正常情况，不是故障）', async () => {
   const oldPage = fakePage([{ period: 301, date: '2026-10-28', nums: [8, 9, 10, 11, 12, 13], special: 14 }]);
   const result = await syncDraws({
-    waitFor: TODAY,
+    waitFor: TARGET,
+    existing: baseDb(),
     wait: true,
     intervalSec: 5,
     maxWaitMin: 0, // 不等待（等价于到点了）
@@ -139,7 +154,8 @@ test('等上游发布：上游一直没发布 → not-published（属于正常�
 test('连续抓取失败：达到上限就放弃，并报 fetch-failed（这才是真故障）', async () => {
   let rounds = 0;
   const result = await syncDraws({
-    waitFor: TODAY,
+    waitFor: TARGET,
+    existing: baseDb(),
     wait: true,
     intervalSec: 5,
     maxWaitMin: 60,
@@ -154,10 +170,11 @@ test('连续抓取失败：达到上限就放弃，并报 fetch-failed（这才�
 });
 
 test('抓取抖动不应放弃：失败几次后又抓到，仍要继续等目标期', async () => {
-  const newPage = fakePage([{ period: 302, date: TODAY, nums: [1, 2, 3, 4, 5, 6], special: 7 }]);
+  const newPage = fakePage([{ period: 302, date: TARGET, nums: [1, 2, 3, 4, 5, 6], special: 7 }]);
   let n = 0;
   const result = await syncDraws({
-    waitFor: TODAY,
+    waitFor: TARGET,
+    existing: baseDb(),
     wait: true,
     intervalSec: 5,
     maxWaitMin: 60,
@@ -175,7 +192,8 @@ test('抓取抖动不应放弃：失败几次后又抓到，仍要继续等目�
 
 test('解析不出记录要报错，不能静默把底库写成空', async () => {
   const result = await syncDraws({
-    waitFor: TODAY,
+    waitFor: TARGET,
+    existing: baseDb(),
     wait: false,
     maxFetchFailures: 2,
     dryRun: true,
