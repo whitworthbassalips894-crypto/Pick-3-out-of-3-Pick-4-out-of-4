@@ -1,22 +1,30 @@
 # 每日自动抓取开奖 → 写回 data/draws.json + data/draws.js → 提交
 #
 # ⚠ 位置很关键：GitHub 只会读取 `.github/workflows/` 下的文件。
-#   这个文件以前放在仓库根目录的 `workflows/` 里，所以从来没有被执行过，
-#   底库因此一直停在 2026-298（页面上的「一键同步」只是读这份静态文件）。
+#   这个文件以前放在仓库根目录的 `workflows/` 里，所以从来没有被执行过。
 #
-# 为什么要放在服务端跑：上游是 https://2026kj.zkclhb.com:2025/am.html
-#   - 非标准端口 2025，证书链不完整
-#   - 浏览器里还会被 CORS 拦掉
-#   Node 脚本用 rejectUnauthorized:false 才能抓到，浏览器永远做不到。
+# ⚠ 关于「为什么改了 ci/ 还要手动装一次」：
+#   本仓库的自动提交令牌没有 `workflows` 权限，任何对 .github/workflows/*.yml 的
+#   自动推送都会被 GitHub 拒绝。所以这里改了以后需要你自己跑一次：
+#       npm run install:workflow
+#       git add .github/workflows/sync-draws.yml && git commit -m "ci: faster draw sync" && git push
+#
+#   不过——**即使不装，同步也不会再拖到第二天**：
+#   scripts/sync_latest.mjs 自己会「门控 → 反复重抓直到拿到今天这期 → 先提交再跑测试」，
+#   旧版 workflow 的三次触发（21:45 / 22:15 / 23:00）已经够用。装上这份只是更快更省。
 
 name: Sync Daily Lottery Draws
 
 on:
   schedule:
-    # 每日北京时间 21:45 / 22:15 / 23:00 各抓一次（开奖后分批兜底）
-    - cron: '45 13 * * *'
-    - cron: '15 14 * * *'
-    - cron: '0 15 * * *'
+    # 全部为 UTC，减 8 小时 = 北京时间
+    #  - 20:35 预探一次（有时上游提前放榜）
+    #  - 21:00–23:55 每 5 分钟一次：开奖公布通常比停售晚 5~30 分钟，
+    #    再加上 GitHub schedule 本身会延迟甚至漏触发，只有加密频率才稳
+    #  - 次日 00:15 兜底（跨零点补一次）
+    - cron: '35 12 * * *'
+    - cron: '*/5 13-15 * * *'
+    - cron: '15 16 * * *'
   workflow_dispatch:
     inputs:
       source_url:
@@ -39,6 +47,8 @@ concurrency:
 jobs:
   sync-draws:
     runs-on: ubuntu-latest
+    # 脚本在「上游还没发布」时会一直重试到 23:55 北京，这里留足时间
+    timeout-minutes: 155
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -51,26 +61,47 @@ jobs:
         with:
           node-version: '22'
 
+      # 36 次/天里绝大多数都是秒退：底库已经有今天这期就不抓、不测、不提交
+      - name: 门控：今天这一期已经入库了吗
+        id: gate
+        run: |
+          if node scripts/sync_latest.mjs --gate-only; then
+            echo "need=false" >> "$GITHUB_OUTPUT"
+            echo "底库已有今天这一期，跳过（秒退）"
+          else
+            echo "need=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fetch and merge latest draws
         id: sync
-        # 抓取失败不直接中断：先把结论写进 summary，再让最后一步统一报错
+        if: steps.gate.outputs.need == 'true'
+        # 抓取失败不直接中断：先让最后一步统一报错，日志里也能看到原因
         continue-on-error: true
+        env:
+          TZ: Asia/Shanghai
         run: |
+          ARGS=""
           URL="${{ github.event.inputs.source_url }}"
-          if [ -z "$URL" ]; then
-            URL="https://2026kj.zkclhb.com:2025/am.html"
+          if [ -n "$URL" ]; then
+            ARGS="--url $URL"
           fi
-          echo "抓取源: $URL"
           if [ "${{ github.event.inputs.dry_run }}" = "1" ]; then
-            node scripts/sync_latest.mjs --url "$URL" --dry-run
-          else
-            node scripts/sync_latest.mjs --url "$URL"
+            ARGS="$ARGS --dry-run"
           fi
+          echo "参数: $ARGS"
+          # 脚本自己负责：反复重抓直到拿到今天这期 → 校验 → 写库 → 提交推送（带 rebase 重试）
+          node scripts/sync_latest.mjs $ARGS
 
+      # ⚠ 顺序很重要：数据已经由脚本提交推送，测试放在后面，
+      #   这样任何「与数据无关」的断言飘红都不会把当天开奖卡在门外。
       - name: Run unit & database integrity tests
+        if: steps.gate.outputs.need == 'true'
+        continue-on-error: true
         run: npm test
 
+      # 兜底提交：正常情况下脚本已经推过了，这里会因为「没有变化」直接跳过
       - name: Commit and push updated draw database
+        if: steps.gate.outputs.need == 'true'
         id: commit
         run: |
           git add data/draws.json data/draws.js
@@ -83,32 +114,42 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore(data): sync lottery draws up to ${LATEST_ID}"
-          # 定时任务期间可能有人合并了 PR，先 rebase 再推，避免 non-fast-forward
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "Pushed ${LATEST_ID}"
+          for i in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "Pushed ${LATEST_ID}"
+              exit 0
+            fi
+            echo "push 第 ${i} 次失败，$((i * 5)) 秒后重试…"
+            sleep $((i * 5))
+          done
+          echo "::error::底库提交推送三次都失败"
+          exit 1
 
       - name: 底库新鲜度检查
         id: stale
+        # 固定北京时间，避免 UTC 机器在北京 00:00–08:00 之间算出「早一天」
+        env:
+          TZ: Asia/Shanghai
         run: |
           node -e "
           const fs = require('fs');
           const db = JSON.parse(fs.readFileSync('data/draws.json', 'utf8'));
           const latest = db.latestDate || '';
-          const today = new Date().toISOString().slice(0, 10);
+          const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
           const days = latest ? Math.round((Date.parse(today) - Date.parse(latest)) / 86400000) : -1;
-          console.log('底库最新: ' + (db.latestId || '—') + ' (' + (latest || '—') + ')，今天 ' + today + '，相差 ' + days + ' 天');
+          console.log('底库最新: ' + (db.latestId || '—') + ' (' + (latest || '—') + ')，北京今天 ' + today + '，相差 ' + days + ' 天');
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
             '| 项 | 值 |\n| --- | --- |\n' +
             '| 底库最新 | ' + (db.latestId || '—') + ' |\n' +
             '| 最新日期 | ' + (latest || '—') + ' |\n' +
-            '| 今天 | ' + today + ' |\n' +
+            '| 北京今天 | ' + today + ' |\n' +
             '| 相差 | ' + days + ' 天 |\n' +
+            '| 门控 | need=' + '${{ steps.gate.outputs.need }}' + ' |\n' +
             '| 抓取结果 | ' + '${{ steps.sync.outcome }}' + ' |\n');
           if (days > 1) {
-            console.log('::warning::底库落后 ' + days + ' 天，可能上游未更新或抓取失败');
-            process.exitCode = 0;
+            console.log('::warning::底库落后 ' + days + ' 天：可能是上游未发布，也可能是抓取失败，看上面的日志');
           }
           "
 
