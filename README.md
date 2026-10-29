@@ -115,8 +115,29 @@
 ```
 ci/sync-draws.yml                  源文件（可评审、可版本管理）
 .github/workflows/sync-draws.yml   实际生效的位置 ← GitHub 只读这里
-每日 21:45 / 22:15 / 23:00（北京时间）抓上游 → 写回 draws.json + draws.js → 提交
+每日 21:45 起自动抓取 → 写回 draws.json + draws.js → 提交
 ```
+
+## 同步为什么能「当天就到位」
+
+开奖公布通常比停售晚 5~30 分钟，而 GitHub 的定时任务自己还会延迟甚至漏触发。
+只靠「晚上跑三次、每次试一下」必然经常落空，落空就要等第二天。所以现在的策略是：
+
+| 环节 | 做法 | 解决什么 |
+| --- | --- | --- |
+| **门控秒退** | 底库已有今天这期就立刻退出（不抓、不测、不提交） | 高频触发也不浪费额度 |
+| **等待上游** | 抓到了但还没出今天这期 → 每 60 秒再抓，直到拿到 / 到 23:55 / 连续失败 10 次 | 不再靠「正好撞上发布时刻」 |
+| **先提交再测试** | 脚本自己 `git commit` + `pull --rebase` + `push`（失败重试 3 次） | `npm test` 里任何一条与数据无关的断言飘红，都不会再把当天数据卡在门外 |
+| **指数退避重试** | 抓取失败按 2 / 4 / 8 / 16 秒退避，最多 5 次；主源失败自动换备用源 | 上游是非标端口 + 坏证书，抖一下就丢一整天 |
+| **原始文件兜底** | 页面发现本站 `data/draws.json` 落后时，会再读一次 `raw.githubusercontent.com` 上的同名文件 | Pages 每次提交要重新构建 30~90 秒，这期间页面看到的是旧数据 |
+
+运行结果是三档，含义分得很清楚：
+
+| 退出码 | 状态 | 含义 |
+| --- | --- | --- |
+| 0 | `ok` / `fresh` | 拿到今天这期，或本来就有 |
+| 0 + `::warning::` | `not-published` | 等到 23:55 上游还没放榜（正常情况，不是故障） |
+| 1 | `fetch-failed` | 站点不可达 / 解析不出记录（真故障，Actions 会标红） |
 
 > ⚠ **历史 bug**：这个工作流以前放在仓库根目录的 `workflows/`，而 GitHub Actions **只**认 `.github/workflows/`，
 > 所以它一次都没执行过，底库因此长期停在 2026-298。现在源文件放在 `ci/`，用一条命令安装到位：
@@ -131,6 +152,10 @@ git add .github/workflows/sync-draws.yml && git commit -m "ci: enable daily draw
 > 用你自己的账号提交就没有这个限制。也可以直接在网页上新建
 > `.github/workflows/sync-draws.yml`，把 `ci/sync-draws.yml` 的内容粘进去。
 > 装好后到 Actions 页面点一次 **Sync Daily Lottery Draws → Run workflow** 验证。
+>
+> **不装也能用**：`scripts/sync_latest.mjs` 自己会「门控 → 反复重抓 → 先提交」，
+> 旧版的三次触发（21:45 / 22:15 / 23:00）同样能当天拿到数据。
+> 装上 `ci/` 这一版只是更快（`21:00–23:55` 每 5 分钟探一次）也更省（其余时间秒退）。
 
 为什么必须在服务端抓：上游 `https://2026kj.zkclhb.com:2025/am.html` 用的是**非标准端口 2025 + 不完整证书链**，
 浏览器直连一定失败（证书 / CORS）；Node 脚本用 `rejectUnauthorized: false` 才抓得到。
@@ -140,7 +165,7 @@ git add .github/workflows/sync-draws.yml && git commit -m "ci: enable daily draw
 | 现象 | 含义 | 处理 |
 | --- | --- | --- |
 | 「仅检查」显示可追加 N 期 | **本机**落后，仓库里已经有新数据 | 点「一键同步」即可 |
-| 本机新鲜度「落后 N 期」+ 可追加 0 期 | **仓库文件**本身没更新 | 看 Actions 里的 sync-draws 是否运行成功；也可本地 `npm run sync` 后提交 |
+| 本机新鲜度「落后 N 期」+ 可追加 0 期 | **仓库文件**本身没更新（Actions 还在等上游，或抓取真的坏了） | 看 Actions 里的 sync-draws：`not-published` 是上游还没发；`fetch-failed` 才是故障 |
 | 本机新鲜度「已是最新」 | 真的没有新开奖 | 无需处理 |
 | 读取失败 | 文件没部署 / 离线缓存异常 | 用「粘贴导入」兜底 |
 
@@ -150,6 +175,7 @@ git add .github/workflows/sync-draws.yml && git commit -m "ci: enable daily draw
 npm start          # 本地静态服务（默认 3000 端口）
 npm test           # 单元测试 + 页面冒烟测试
 npm run sync       # 手动从上游同步最新开奖到 data/draws.json（同时生成 draws.js）
+npm run sync:wait  # 一直等到今天这期出现再写库并提交（CI 里就是这个模式）
 npm run build:db   # 由 data/draws.json 重新生成 data/draws.js
 npm run install:workflow   # 把 ci/sync-draws.yml 安装到 .github/workflows/（让自动同步生效）
 ```

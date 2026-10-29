@@ -8,7 +8,8 @@ import {
   drawOrdinal,
   formatSyncSummary,
   nextPeriodMeta,
-  periodId
+  periodId,
+  rawGithubDbUrl
 } from '../src/sync.js';
 
 const d = (year, periodNum, nums = [1, 2, 3, 4, 5, 6], special = 7, date = '') => ({
@@ -161,7 +162,16 @@ test('describeSourceLag：只差今天这一期（开奖未公布）不算落后
   assert.equal(r.lagPeriods, 1);
   assert.equal(r.expectedId, '2026-299');
   assert.match(r.message, /落后 1 期/);
-  assert.match(r.message, /还没公布/);
+  assert.match(r.message, /还没(到点|公布)|还没放榜/, '要明确告诉用户「上游还没放榜」，而不是让人以为工具坏了');
+  assert.match(r.message, /21:40/, '顺带说明开奖公布时间，用户可以自己对表');
+});
+
+test('describeSourceLag：落后超过 1 期时，hint 要说明「21:45 起自动抓取、会重试到 23:55」', () => {
+  const r = describeSourceLag({ id: '2026-298', year: 2026, periodNum: 298, date: '2026-10-25' }, '2026-10-29');
+  assert.equal(r.stale, true);
+  assert.match(r.hint, /21:45/);
+  assert.match(r.hint, /23:55/);
+  assert.match(r.hint, /sync-draws/);
 });
 
 test('describeSourceLag：落后 2 期以上判定为 stale，并点明是仓库文件没更新', () => {
@@ -184,4 +194,21 @@ test('describeSourceLag：没有本地数据 / 非法日期时不瞎算', () => 
   assert.equal(describeSourceLag(null, '2026-10-27').ok, false);
   assert.match(describeSourceLag(null, '2026-10-27').message, /还没有开奖数据/);
   assert.equal(describeSourceLag({ year: 2026, periodNum: 298 }, 'not-a-date').ok, false);
+});
+
+/* ---------------------------------------------- 原始文件兜底源 */
+
+test('rawGithubDbUrl：只对 GitHub Pages 的 project 站点推导，其它一律返回空串', () => {
+  assert.equal(
+    rawGithubDbUrl('https://alice.github.io/my-repo/?p=2026-300'),
+    'https://raw.githubusercontent.com/alice/my-repo/main/data/draws.json'
+  );
+  // 用户主页站点（没有 repo 段）推导不出来
+  assert.equal(rawGithubDbUrl('https://alice.github.io/'), '');
+  // 本地 / 自建域名 / 非法地址都不猜
+  assert.equal(rawGithubDbUrl('http://localhost:3000/'), '');
+  assert.equal(rawGithubDbUrl('https://example.com/lottery/'), '');
+  assert.equal(rawGithubDbUrl(''), '');
+  // 分支可配置（tag / 分支都行）
+  assert.match(rawGithubDbUrl('https://alice.github.io/repo/', 'master'), /\/master\/data\/draws\.json$/);
 });

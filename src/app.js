@@ -26,7 +26,7 @@ import {
 } from './constants.js';
 import { evaluateTickets } from './combinatorics.js';
 import { mergeDraws, normalizeDrawRecord, parseDrawsInput } from './parser.js';
-import { compareDrawSets, describeSourceLag, formatSyncSummary } from './sync.js';
+import { compareDrawSets, describeSourceLag, formatSyncSummary, rawGithubDbUrl } from './sync.js';
 import { formatFiveTickets, formatSingleTicket } from './copy.js';
 import {
   buildDailyFiveRecords,
@@ -1469,23 +1469,64 @@ function downloadJson(payload, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-/** 读取仓库数据源（带 _r 参数绕过 Service Worker 的数据缓存） */
+/** 拉一次 JSON（带 _r 参数绕过 Service Worker 的数据缓存；用绝对地址兼容子目录部署） */
+async function fetchDbJson(url, timeoutMs = 8000) {
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const draws = (Array.isArray(data.draws) ? data.draws : []).map(normalizeDrawRecord).filter(Boolean);
+    if (!draws.length) throw new Error('数据源里没有可用的开奖记录');
+    return { data, draws };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * 读取仓库数据源
+ *
+ * 两级来源：
+ *  1. 本站的 ./data/draws.json（GitHub Pages 静态文件）
+ *  2. 落后时再问一次 raw.githubusercontent.com 上的同名文件
+ *
+ * 为什么需要第 2 级：Pages 每次提交后要重新构建（30~90 秒，偶尔更久），
+ * 这段时间页面读到的还是旧底库，用户看到的就是「明明同步了却没更新」。
+ * 原始文件不经过 Pages 构建，提交后几秒就生效。第 2 级失败不影响主流程。
+ */
 async function fetchSourceDb() {
-  // 用绝对地址：手机上从不同路径 / 内嵌 WebView 打开时，相对路径可能没有基址
-  const url = new URL(`./data/draws.json?_r=${Date.now()}`, window.location.href).toString();
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  const draws = (Array.isArray(data.draws) ? data.draws : []).map(normalizeDrawRecord).filter(Boolean);
-  if (!draws.length) throw new Error('数据源里没有可用的开奖记录');
-  syncState.remote = draws;
+  const localUrl = new URL(`./data/draws.json?_r=${Date.now()}`, window.location.href).toString();
+  let result = await fetchDbJson(localUrl);
+  let via = 'pages';
+
+  const expected = todayIso();
+  const localLag = describeSourceLag(result.draws[0], expected);
+  if (localLag.ok && localLag.stale) {
+    const mirror = rawGithubDbUrl(window.location.href);
+    if (mirror) {
+      try {
+        const fresh = await fetchDbJson(`${mirror}?t=${Date.now()}`, 6000);
+        if (describeSourceLag(fresh.draws[0], expected).lagPeriods < localLag.lagPeriods) {
+          result = fresh;
+          via = 'raw';
+        }
+      } catch (err) {
+        console.info('[sync] 原始文件兜底源不可用，继续用本站静态文件', err.message);
+      }
+    }
+  }
+
+  syncState.remote = result.draws;
   syncState.meta = {
-    updatedAt: data.updatedAt || '',
-    latestId: data.latestId || draws[0].id,
-    totalCount: data.totalCount ?? draws.length,
-    source: data.source || ''
+    updatedAt: result.data.updatedAt || '',
+    latestId: result.data.latestId || result.draws[0].id,
+    totalCount: result.data.totalCount ?? result.draws.length,
+    source: result.data.source || '',
+    via
   };
-  return draws;
+  return result.draws;
 }
 
 function formatStamp(iso) {
@@ -1508,7 +1549,8 @@ function renderSyncPanel() {
   grid.innerHTML = [
     cell('本地最后一期', localLatest ? localLatest.id : '—'),
     cell('数据源最新一期', syncState.meta ? syncState.meta.latestId : '未读取'),
-    cell('数据源更新时间', syncState.meta ? formatStamp(syncState.meta.updatedAt) : '—'),
+    cell('数据源更新时间', (syncState.meta ? formatStamp(syncState.meta.updatedAt) : '—')
+      + (syncState.meta?.via === 'raw' ? '（取自仓库原始文件，Pages 尚在构建）' : '')),
     cell('本机新鲜度', lag.ok ? (lag.stale ? `落后 ${lag.lagPeriods} 期` : '已是最新') : '—',
       lag.ok ? (lag.stale ? 'is-warn' : 'is-good') : ''),
     cell('本次可追加', r ? `${r.missingCount} 期` : '—', r && r.missingCount > 0 ? 'is-good' : ''),
@@ -1607,7 +1649,7 @@ async function runSync({ write = false, fix = false, silent = false } = {}) {
   const status = $('syncStatus');
   const btns = ['btnSyncCheck', 'btnSyncNow', 'btnSyncFix'].map((id) => $(id)).filter(Boolean);
   btns.forEach((b) => { b.disabled = true; });
-  status.textContent = '正在读取仓库数据源 ./data/draws.json …';
+  status.textContent = '正在读取仓库数据源 ./data/draws.json …（如果本站那份还落后，会自动再问一次仓库原始文件）';
   try {
     await fetchSourceDb();
     const r = compareDrawSets(state.allDraws, syncState.remote);
